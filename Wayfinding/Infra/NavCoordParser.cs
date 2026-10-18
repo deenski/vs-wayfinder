@@ -67,7 +67,7 @@ public readonly struct ParsedCoord
 public static class NavCoordParser
 {
     public const string Usage =
-        "Use .nav coord <x> <z> or .nav coord <x> <y> <z>. X and Z are spawn-relative, the way the map shows them. Y is absolute height.";
+        "Use .nav coord <x> <z> or .nav coord <x> <y> <z>. X and Z are spawn-relative, the way the map shows them. Y is absolute height, from 0 up to the world height minus 1.";
 
     public const string CoordinateOverflowMessage =
         "That X or Z doesn't fit in a block coordinate.";

@@ -33,7 +33,7 @@ public static class NavTargetCommands
                 .HandleWith(args => session.Player(ArgText(args)))
             .EndSubCommand()
             .BeginSubCommand("coord")
-                .WithDescription("Navigate to coordinates. X and Z are spawn-relative, the way the map shows them. Y is absolute height.")
+                .WithDescription("Navigate to coordinates. X and Z are spawn-relative, the way the map shows them. Y is absolute height, from 0 up to the world height minus 1.")
                 .WithAdditionalInformation("X and Z are spawn-relative: absolute equals the displayed number plus the spawn block, matching the map and /waypoint list. Y, when given, is absolute height and is not offset by spawn.")
                 .WithExamples(".nav coord 10 -4", ".nav coord 10 70 -4")
                 .RequiresPrivilege(Privilege.chat)
@@ -267,13 +267,7 @@ public sealed class ClientNavSession
 
     private int MapHeight()
     {
-        var world = capi.World;
-        if (world == null)
-        {
-            return 0;
-        }
-
-        var height = world.BlockAccessor.MapSizeY;
+        var height = capi.World?.BlockAccessor?.MapSizeY ?? 0;
         return height > 0 ? height : 0;
     }
 

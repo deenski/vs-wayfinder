@@ -91,6 +91,7 @@ public class NavCoordParserTests
 
         Assert.False(ok);
         Assert.Equal(NavCoordParser.Usage, error);
+        Assert.Contains("from 0 up to the world height minus 1.", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -156,6 +157,24 @@ public class NavCoordParserTests
 
         Assert.False(ok);
         Assert.Equal(NavCoordParser.HeightOutsideWorldMessage(y, MapHeight), error);
+    }
+
+    [Fact]
+    public void Y_383_is_inside_a_384_high_world()
+    {
+        var ok = NavCoordParser.TryParse("0 383 0", Spawn, 384, out var coord, out var error);
+
+        Assert.True(ok, error);
+        Assert.Equal(383, coord.Absolute.Y);
+    }
+
+    [Fact]
+    public void Y_384_is_outside_a_384_high_world()
+    {
+        var ok = NavCoordParser.TryParse("0 384 0", Spawn, 384, out _, out var error);
+
+        Assert.False(ok);
+        Assert.Equal(NavCoordParser.HeightOutsideWorldMessage(384, 384), error);
     }
 
     [Fact]

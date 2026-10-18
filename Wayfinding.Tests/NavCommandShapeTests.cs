@@ -31,7 +31,7 @@ public class NavCommandShapeTests
         Assert.Contains("NavTargets", mod, StringComparison.Ordinal);
 
         Assert.Contains(
-            "X and Z are spawn-relative, the way the map shows them. Y is absolute height.",
+            "X and Z are spawn-relative, the way the map shows them. Y is absolute height, from 0 up to the world height minus 1.",
             commands,
             StringComparison.Ordinal);
         Assert.Contains("WithAdditionalInformation(", commands, StringComparison.Ordinal);
@@ -39,7 +39,7 @@ public class NavCommandShapeTests
             "Y, when given, is absolute height and is not offset by spawn.",
             commands,
             StringComparison.Ordinal);
-        Assert.Contains("BlockAccessor.MapSizeY", commands, StringComparison.Ordinal);
+        Assert.Contains("BlockAccessor?.MapSizeY", commands, StringComparison.Ordinal);
         Assert.DoesNotContain("one constructor argument", commands, StringComparison.Ordinal);
         Assert.Contains("server-side name-to-uid lookup", commands, StringComparison.Ordinal);
 
