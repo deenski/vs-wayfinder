@@ -69,6 +69,17 @@ public class VersionGateTests
     }
 
     [Fact]
+    public void An_unknown_feature_stays_disabled_after_evaluation()
+    {
+        var gate = new VersionGate();
+        gate.Evaluate(new CountingProbe(), new WayfindingLog(new ListSink()));
+
+        Assert.True(gate.IsEvaluated);
+        Assert.False(gate.IsEnabled((Feature)42));
+        Assert.False(gate.State((Feature)42).Enabled);
+    }
+
+    [Fact]
     public void Features_stay_disabled_until_the_gate_runs()
     {
         var gate = new VersionGate();
