@@ -64,24 +64,60 @@ public class InfraBoundaryTests
         Assert.Contains("DisposeDimensionAndArrival()", mod, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void Kan22_and_kan23_stubs_do_not_open_a_nav_root()
+    // GetOrCreate("nav") may appear only in these files. One command root; the
+    // allowlisted call sites share it. Create("nav") and RegisterCommand("nav"
+    // are banned in every Wayfinding source file.
+    // When KAN-21 (PR #8) lands, add "Teams/TeamService.cs" here. That file
+    // shares this root for share and team. Do not allow it to call Create.
+    private static readonly string[] NavGetOrCreateAllowlist =
     {
-        var commandsDir = Path.Combine(RepoRoot(), "Wayfinding", "Commands");
-        foreach (var name in new[] { "TeammateTetherCommands.cs", "DimensionArrivalCommands.cs" })
+        "Commands/NavCommands.cs",
+        "Commands/NavTargetCommands.cs",
+    };
+
+    [Fact]
+    public void Nav_root_is_one_command_across_the_mod()
+    {
+        var modRoot = Path.Combine(RepoRoot(), "Wayfinding");
+        var offenders = new List<string>();
+        foreach (var path in Directory.GetFiles(modRoot, "*.cs", SearchOption.AllDirectories))
         {
-            var text = File.ReadAllText(Path.Combine(commandsDir, name));
-            Assert.DoesNotContain(".GetOrCreate(", text, StringComparison.Ordinal);
-            Assert.DoesNotContain(".Create(", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("BeginSubCommand(", text, StringComparison.Ordinal);
+            if (IsBuildOutput(path))
+            {
+                continue;
+            }
+
+            var relative = Path.GetRelativePath(modRoot, path).Replace('\\', '/');
+            var text = File.ReadAllText(path);
+            // GetOrCreate("nav") contains the Create("nav") text. Strip the shared-root
+            // call before banning a real Create.
+            var withoutSharedRoot = text.Replace("GetOrCreate(\"nav\")", "", StringComparison.Ordinal);
+            if (withoutSharedRoot.Contains("Create(\"nav\")", StringComparison.Ordinal))
+            {
+                offenders.Add(relative + " calls Create(\"nav\")");
+            }
+
+            if (text.Contains("RegisterCommand(\"nav\"", StringComparison.Ordinal))
+            {
+                offenders.Add(relative + " calls RegisterCommand(\"nav\"");
+            }
+
+            if (text.Contains("GetOrCreate(\"nav\")", StringComparison.Ordinal)
+                && Array.IndexOf(NavGetOrCreateAllowlist, relative) < 0)
+            {
+                offenders.Add(relative + " calls GetOrCreate(\"nav\") outside the allowlist");
+            }
         }
 
-        foreach (var name in new[] { "WayfindingModSystem.TeammateTether.cs", "WayfindingModSystem.DimensionArrival.cs" })
-        {
-            var text = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", name));
-            Assert.DoesNotContain("ChatCommands", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("RegisterMapLayer", text, StringComparison.Ordinal);
-        }
+        Assert.Empty(offenders);
+    }
+
+    private static bool IsBuildOutput(string path)
+    {
+        var bin = $"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}";
+        var obj = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
+        return path.Contains(bin, StringComparison.Ordinal)
+            || path.Contains(obj, StringComparison.Ordinal);
     }
 
     [Fact]

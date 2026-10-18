@@ -8,9 +8,9 @@ namespace Wayfinding;
 public static class TeammateTetherCommands
 {
     /// <summary>
-    /// Add tether subcommands on <paramref name="nav"/> with BeginSubCommand.
-    /// This method must not open its own root. <c>.nav share</c> and <c>.nav team</c>
-    /// belong to KAN-21. <c>.nav player</c> belongs to KAN-20.
+    /// No subcommands are planned for the teammate tether. <paramref name="nav"/> is
+    /// the existing root; this method must not open another one. <c>.nav share</c>
+    /// and <c>.nav team</c> belong to KAN-21. <c>.nav player</c> belongs to KAN-20.
     /// </summary>
     public static void Register(IChatCommand nav, WayfindingModSystem mod)
     {

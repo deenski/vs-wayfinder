@@ -9,6 +9,7 @@ public partial class WayfindingModSystem
     /// vanilla remote-player tracking, then a greyed last-known marker. Subscribe
     /// from <paramref name="api"/> here. Do not register a map layer or a team
     /// service; those registrations belong to other tickets.
+    /// The position source should sit behind an interface so Phase 2b can replace it.
     /// </summary>
     private void RegisterTeammateTether(ICoreClientAPI api)
     {
@@ -17,6 +18,8 @@ public partial class WayfindingModSystem
 
     /// <summary>
     /// KAN-22 cleanup for listeners started in <see cref="RegisterTeammateTether"/>.
+    /// Idempotent, and safe when that register method never ran. Dispose also runs
+    /// on the server instance, which does not call the client hook.
     /// </summary>
     private void DisposeTeammateTether()
     {
