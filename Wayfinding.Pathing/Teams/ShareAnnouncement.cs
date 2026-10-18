@@ -1,16 +1,9 @@
-using System.Globalization;
-
 namespace Wayfinding.Pathing.Teams;
 
 /// <summary>A parsed share payload.</summary>
 /// <param name="Sharing">True when the player is sharing location.</param>
 /// <param name="PlayerUid">Uid named by the payload.</param>
 public readonly record struct ShareNotice(bool Sharing, string PlayerUid);
-
-/// <summary>A parsed incoming chat line that carries a share payload.</summary>
-/// <param name="Notice">The payload.</param>
-/// <param name="SenderEntityId">Entity id from <c>from:</c>, or null when that wrapper is absent.</param>
-public readonly record struct ParsedShareChat(ShareNotice Notice, long? SenderEntityId);
 
 /// <summary>
 /// Share announcements. The human sentence is what players read. The payload
@@ -20,14 +13,6 @@ public static class ShareAnnouncement
 {
     /// <summary>Payload prefix <c>wayfinding:v1:share:</c>.</summary>
     public const string Prefix = "wayfinding:v1:share:";
-
-    // Vintage Story 1.22.7 ServerMain.HandleChatLine reads the chat packet's
-    // message and group id and drops the client data field. The broadcast
-    // data is replaced with "from: {entityId},withoutPrefix:{message}".
-    // The payload therefore also rides in the message text, which the server
-    // does forward. Receivers accept the prefix from either field.
-    private const string SenderPrefix = "from: ";
-    private const string SenderTail = ",withoutPrefix:";
 
     /// <summary>Builds <c>wayfinding:v1:share:on|off:playerUid</c>.</summary>
     public static string FormatPayload(bool sharing, string playerUid)
@@ -50,7 +35,11 @@ public static class ShareAnnouncement
         return FormatHumanLine(playerName, sharing) + " " + FormatPayload(sharing, playerUid);
     }
 
-    /// <summary>Reads one payload from text. False for a missing, malformed, or foreign prefix.</summary>
+    /// <summary>
+    /// Reads one payload from text. The prefix must start the text or follow whitespace,
+    /// so a glued token such as <c>xwayfinding:</c> does not match. A uid that contains
+    /// <c>:</c> is rejected.
+    /// </summary>
     public static bool TryParsePayload(string? text, out ShareNotice notice)
     {
         notice = default;
@@ -59,13 +48,31 @@ public static class ShareAnnouncement
             return false;
         }
 
-        var index = text.IndexOf(Prefix, StringComparison.Ordinal);
-        if (index < 0)
+        var start = -1;
+        var index = 0;
+        while (index < text.Length)
+        {
+            var found = text.IndexOf(Prefix, index, StringComparison.Ordinal);
+            if (found < 0)
+            {
+                return false;
+            }
+
+            if (found == 0 || char.IsWhiteSpace(text[found - 1]))
+            {
+                start = found;
+                break;
+            }
+
+            index = found + Prefix.Length;
+        }
+
+        if (start < 0)
         {
             return false;
         }
 
-        var rest = text.AsSpan(index + Prefix.Length);
+        var rest = text.AsSpan(start + Prefix.Length);
         bool sharing;
         if (rest.StartsWith("on:"))
         {
@@ -100,59 +107,6 @@ public static class ShareAnnouncement
         }
 
         notice = new ShareNotice(sharing, uid);
-        return true;
-    }
-
-    /// <summary>Reads the entity id from <c>from: &lt;entityId&gt;,withoutPrefix:</c>.</summary>
-    public static bool TryReadSenderEntityId(string? data, out long entityId)
-    {
-        entityId = 0;
-        if (string.IsNullOrEmpty(data) || !data.StartsWith(SenderPrefix, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var end = data.IndexOf(SenderTail, SenderPrefix.Length, StringComparison.Ordinal);
-        if (end < 0)
-        {
-            return false;
-        }
-
-        var number = data.Substring(SenderPrefix.Length, end - SenderPrefix.Length);
-        return long.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out entityId);
-    }
-
-    /// <summary>
-    /// Reads a payload from the message, the data, or both. False when both exist and disagree,
-    /// or when neither contains a payload.
-    /// </summary>
-    public static bool TryParseIncoming(string? message, string? data, out ParsedShareChat parsed)
-    {
-        parsed = default;
-        long? senderEntityId = TryReadSenderEntityId(data, out var entityId) ? entityId : null;
-
-        ShareNotice? found = null;
-        if (TryParsePayload(data, out var fromData))
-        {
-            found = fromData;
-        }
-
-        if (TryParsePayload(message, out var fromMessage))
-        {
-            if (found is ShareNotice existing && existing != fromMessage)
-            {
-                return false;
-            }
-
-            found = fromMessage;
-        }
-
-        if (found is not ShareNotice notice)
-        {
-            return false;
-        }
-
-        parsed = new ParsedShareChat(notice, senderEntityId);
         return true;
     }
 }

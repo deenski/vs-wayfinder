@@ -1,9 +1,10 @@
 namespace Wayfinding.Pathing.Teams;
 
 /// <summary>
-/// Who may be drawn or targeted. False for anyone who is not a teammate,
-/// has opted out, or is unknown. Callers must not show a line, marker,
-/// distance, or tether unless this returns true.
+/// Who may be drawn or targeted. KAN-20 and KAN-22 must call this from the
+/// game main thread only. Teams are not behind the version gate. False for
+/// anyone who is not a teammate, has opted out, or is unknown. Do not show a
+/// line, marker, distance, or tether unless <see cref="IsVisibleTeammate"/> is true.
 /// </summary>
 public interface ITeamService
 {

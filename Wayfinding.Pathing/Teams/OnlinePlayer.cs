@@ -1,16 +1,17 @@
 namespace Wayfinding.Pathing.Teams;
 
 /// <summary>
-/// An online player the client can match to a chat <c>from:</c> entity id.
-/// <see cref="EntityLoaded"/> is false when the id is known but the entity
-/// is not in the world. That line cannot be verified.
+/// An online player the client can match to a server chat prefix.
+/// The entity does not have to be loaded. Far-away players are included.
 /// </summary>
-public readonly record struct OnlinePlayer(string Uid, long EntityId, bool EntityLoaded);
+/// <param name="Name">Player name, matched exactly to the server prefix.</param>
+/// <param name="Uid">Player uid.</param>
+public readonly record struct OnlinePlayer(string Name, string Uid);
 
 /// <summary>What <see cref="TeamModel.TryApplyChat"/> did with one chat line.</summary>
 public enum ShareChatDisposition
 {
-    /// <summary>Not a share announcement, or the message and data disagree.</summary>
+    /// <summary>Not a share announcement.</summary>
     Ignored,
 
     /// <summary>
@@ -33,4 +34,7 @@ public enum ShareChatDisposition
 /// One recorded announcement: evidence in a group, plus the latest share flag
 /// for that player. GroupId -1 is a share flag with no remaining evidence.
 /// </summary>
+/// <param name="GroupId">Group channel, or -1 when no evidence remains.</param>
+/// <param name="PlayerUid">Player the announcement named.</param>
+/// <param name="Sharing">Latest verified share flag for that player.</param>
 public readonly record struct ShareRecord(int GroupId, string PlayerUid, bool Sharing);

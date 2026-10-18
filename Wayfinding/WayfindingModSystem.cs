@@ -52,7 +52,7 @@ public class WayfindingModSystem : ModSystem
         // TeamService adds share and team. Both use GetOrCreate; Create throws
         // if this root already exists.
         NavCommands.Register(api, this);
-        _teams = new TeamService(api, Mod.Logger);
+        _teams = new TeamService(api, Log);
         _teams.Start();
     }
 

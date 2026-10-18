@@ -40,37 +40,18 @@ public class ShareAnnouncementTests
     }
 
     [Fact]
-    public void Vanilla_server_wrapper_still_yields_the_payload_and_the_sender_entity()
+    public void Glued_prefix_does_not_parse()
     {
-        var message = ShareAnnouncement.FormatChatMessage("Maili", true, "uid-1");
-        var data = "from: 4821,withoutPrefix:" + message;
-
-        Assert.True(ShareAnnouncement.TryReadSenderEntityId(data, out var entityId));
-        Assert.Equal(4821, entityId);
-        Assert.True(ShareAnnouncement.TryParseIncoming(message, data, out var parsed));
-        Assert.True(parsed.Notice.Sharing);
-        Assert.Equal("uid-1", parsed.Notice.PlayerUid);
-        Assert.Equal(4821, parsed.SenderEntityId);
+        Assert.False(ShareAnnouncement.TryParsePayload("xwayfinding:v1:share:on:uid-1", out _));
+        Assert.True(ShareAnnouncement.TryParsePayload("see wayfinding:v1:share:on:uid-1", out var notice));
+        Assert.Equal("uid-1", notice.PlayerUid);
     }
 
     [Fact]
-    public void Forwarded_data_payload_parses_without_a_sender_entity()
+    public void Uid_with_an_extra_colon_does_not_parse()
     {
-        var data = ShareAnnouncement.FormatPayload(true, "uid-1");
-
-        Assert.False(ShareAnnouncement.TryReadSenderEntityId(data, out _));
-        Assert.True(ShareAnnouncement.TryParseIncoming("[Wayfinding] Maili is sharing location", data, out var parsed));
-        Assert.Equal("uid-1", parsed.Notice.PlayerUid);
-        Assert.Null(parsed.SenderEntityId);
-    }
-
-    [Fact]
-    public void Disagreeing_payloads_are_rejected()
-    {
-        var message = ShareAnnouncement.FormatChatMessage("Maili", true, "uid-1");
-        var data = ShareAnnouncement.FormatPayload(false, "uid-2");
-
-        Assert.False(ShareAnnouncement.TryParseIncoming(message, data, out _));
+        Assert.False(ShareAnnouncement.TryParsePayload("wayfinding:v1:share:on:uid:extra", out _));
+        Assert.False(ShareAnnouncement.TryParsePayload("wayfinding:v1:share:off:uid:extra", out _));
     }
 
     [Theory]
@@ -85,6 +66,5 @@ public class ShareAnnouncementTests
     public void Malformed_or_foreign_text_does_not_parse(string? text)
     {
         Assert.False(ShareAnnouncement.TryParsePayload(text, out _));
-        Assert.False(ShareAnnouncement.TryParseIncoming(text, text, out _));
     }
 }

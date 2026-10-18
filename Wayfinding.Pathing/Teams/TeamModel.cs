@@ -5,8 +5,9 @@ namespace Wayfinding.Pathing.Teams;
 /// A remote player is visible only when the local player is in a team group,
 /// a verified announcement from that player was seen in that group's channel,
 /// and the latest verified announcement has sharing on. Unknown players are
-/// hidden. A payload with no verified sender is ignored and does not change
-/// evidence or share state.
+/// hidden. The sender is the name in the server chat prefix, mapped through
+/// the online player list. A missing prefix, an unknown name, or a uid that
+/// does not match is unverified and does not change evidence or share state.
 /// </summary>
 public sealed class TeamModel : ITeamService
 {
@@ -18,16 +19,16 @@ public sealed class TeamModel : ITeamService
     private string? _restriction;
 
     /// <summary>Uid of the local player, or null before one is known.</summary>
-    public string? LocalPlayerUid => _localUid;
+    internal string? LocalPlayerUid => _localUid;
 
     /// <summary>Group name selected with <c>.nav team</c>, or null for every membership group.</summary>
-    public string? TeamRestriction => _restriction;
+    internal string? TeamRestriction => _restriction;
 
     /// <summary>Groups the local player is in.</summary>
-    public IReadOnlyCollection<TeamGroup> Membership => _groups.Values.ToArray();
+    internal IReadOnlyCollection<TeamGroup> Membership => _groups.Values.ToArray();
 
     /// <summary>Sets the local player. An empty uid clears it. The local player is never visible.</summary>
-    public void SetLocalPlayer(string? uid)
+    internal void SetLocalPlayer(string? uid)
     {
         _localUid = string.IsNullOrEmpty(uid) ? null : uid;
     }
@@ -36,7 +37,7 @@ public sealed class TeamModel : ITeamService
     /// Replaces membership. When the set of group ids changes, evidence for groups
     /// that were left is dropped, and share flags with no remaining evidence are dropped.
     /// </summary>
-    public void SetMembership(IReadOnlyList<TeamGroup> groups)
+    internal void SetMembership(IReadOnlyList<TeamGroup> groups)
     {
         var next = new Dictionary<int, TeamGroup>();
         foreach (var group in groups)
@@ -71,19 +72,19 @@ public sealed class TeamModel : ITeamService
     }
 
     /// <summary>Shows teammates from every membership group again.</summary>
-    public void ClearRestriction()
+    internal void ClearRestriction()
     {
         _restriction = null;
     }
 
     /// <summary>Sets the team limit by name without checking membership. Whitespace clears it.</summary>
-    public void SetRestrictionName(string? groupName)
+    internal void SetRestrictionName(string? groupName)
     {
         _restriction = string.IsNullOrWhiteSpace(groupName) ? null : groupName.Trim();
     }
 
     /// <summary>Limits visibility to one membership group. The stored name is the group's own spelling.</summary>
-    public TeamRestrictResult TryRestrictTo(string groupName, out string canonicalName)
+    internal TeamRestrictResult TryRestrictTo(string groupName, out string canonicalName)
     {
         canonicalName = "";
         if (string.IsNullOrWhiteSpace(groupName))
@@ -118,26 +119,23 @@ public sealed class TeamModel : ITeamService
     }
 
     /// <summary>
-    /// Apply one chat line. Fail closed: the <c>from:</c> entity id must match
-    /// an online player whose entity is loaded, and that player's uid must
-    /// match the payload. Share-on and share-off use the same rule. Anything
-    /// else leaves evidence and share flags untouched.
+    /// Apply one chat line. Fail closed: the server name prefix must map to one
+    /// online player, and that player's uid must match the payload. The payload
+    /// is read only from the text after the prefix. Share-on and share-off use
+    /// the same rule. Anything else leaves evidence and share flags untouched.
     /// </summary>
-    public ShareChatDisposition TryApplyChat(
+    internal ShareChatDisposition TryApplyChat(
         int groupId,
         string? message,
-        string? data,
         IReadOnlyList<OnlinePlayer>? onlinePlayers)
     {
-        if (!ShareAnnouncement.TryParseIncoming(message, data, out var parsed))
+        var resolution = ServerShareLine.Resolve(message, onlinePlayers);
+        if (resolution.Status == ShareLineStatus.None)
         {
             return ShareChatDisposition.Ignored;
         }
 
-        if (parsed.SenderEntityId is not long entityId
-            || !TryResolveLoadedSender(onlinePlayers, entityId, out var sender)
-            || string.IsNullOrEmpty(sender.Uid)
-            || !string.Equals(sender.Uid, parsed.Notice.PlayerUid, StringComparison.Ordinal))
+        if (resolution.Status != ShareLineStatus.Verified)
         {
             return ShareChatDisposition.Unverified;
         }
@@ -151,13 +149,19 @@ public sealed class TeamModel : ITeamService
             return ShareChatDisposition.NotInGroup;
         }
 
-        _evidence.Add((groupId, parsed.Notice.PlayerUid));
-        _sharing[parsed.Notice.PlayerUid] = parsed.Notice.Sharing;
+        _evidence.Add((groupId, resolution.Notice.PlayerUid));
+        _sharing[resolution.Notice.PlayerUid] = resolution.Notice.Sharing;
         return ShareChatDisposition.Applied;
     }
 
+    /// <summary>True when this group has already seen an announcement from that uid.</summary>
+    internal bool HasEvidence(int groupId, string uid)
+    {
+        return !string.IsNullOrEmpty(uid) && _evidence.Contains((groupId, uid));
+    }
+
     /// <summary>Recorded evidence and share flags, in a stable order. Group id -1 has no evidence left.</summary>
-    public IReadOnlyList<ShareRecord> RecordedShares()
+    internal IReadOnlyList<ShareRecord> RecordedShares()
     {
         var rows = new List<ShareRecord>(_evidence.Count + _sharing.Count);
         var evidenced = new HashSet<string>(StringComparer.Ordinal);
@@ -193,31 +197,6 @@ public sealed class TeamModel : ITeamService
             return left.Sharing.CompareTo(right.Sharing);
         });
         return rows;
-    }
-
-    private static bool TryResolveLoadedSender(
-        IReadOnlyList<OnlinePlayer>? onlinePlayers,
-        long entityId,
-        out OnlinePlayer sender)
-    {
-        sender = default;
-        if (onlinePlayers is null)
-        {
-            return false;
-        }
-
-        foreach (var player in onlinePlayers)
-        {
-            if (player.EntityId != entityId || !player.EntityLoaded)
-            {
-                continue;
-            }
-
-            sender = player;
-            return true;
-        }
-
-        return false;
     }
 
     /// <inheritdoc />
@@ -266,7 +245,7 @@ public sealed class TeamModel : ITeamService
     }
 
     /// <summary>Clears membership, evidence, share flags, the local uid, and the team limit.</summary>
-    public void Reset()
+    internal void Reset()
     {
         _groups.Clear();
         _evidence.Clear();

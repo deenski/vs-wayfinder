@@ -5,6 +5,7 @@ using System.Linq;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Server;
+using Wayfinding.Infra;
 using Wayfinding.Pathing.Teams;
 
 namespace Wayfinding.Teams;
@@ -17,16 +18,12 @@ public sealed class TeamService : ITeamService, IDisposable
 {
     public const string ConfigName = "wayfinding-teams.json";
 
-    // One group chat per interval. Dedicated servers rate-limit chat, and an
-    // opt-out has to reach online teammates within 5 seconds. The first
-    // channel goes out immediately; further channels wait this long.
-    private const int SendSpacingMs = 1100;
-
     private readonly ICoreClientAPI _capi;
-    private readonly ILogger _logger;
+    private readonly IWayfindingLog _log;
+    private readonly GameTickClock _clock = new();
     private readonly TeamModel _model = new();
-    private readonly LogOnce _unverifiedLog = new();
-    private readonly Dictionary<int, PendingAnnouncement> _pending = new();
+    private readonly ShareOutbox _outbox;
+    private readonly ShareSession _session;
 
     private ShareStateStore _store = new();
     private long _tickListener = -1;
@@ -35,12 +32,13 @@ public sealed class TeamService : ITeamService, IDisposable
     private string _worldId = "";
     private string _membershipKey = "";
     private string _visibleKey = "";
-    private long _lastSendAt = long.MinValue;
 
-    public TeamService(ICoreClientAPI capi, ILogger logger)
+    public TeamService(ICoreClientAPI capi, IWayfindingLog log)
     {
         _capi = capi;
-        _logger = logger;
+        _log = log;
+        _outbox = new ShareOutbox(_clock);
+        _session = new ShareSession(_model, _outbox);
     }
 
     public void Start()
@@ -54,6 +52,8 @@ public sealed class TeamService : ITeamService, IDisposable
 
     public void Dispose()
     {
+        _ready = false;
+        _outbox.Clear();
         _capi.Event.ChatMessage -= OnChatMessage;
         _capi.Event.LevelFinalize -= OnLevelFinalize;
         _capi.Event.LeaveWorld -= OnLeaveWorld;
@@ -121,7 +121,9 @@ public sealed class TeamService : ITeamService, IDisposable
 
         _store.SetSharing(_worldId, sharing);
         SaveStore();
-        EnqueueAnnouncements();
+        PublishLocal();
+        _session.AnnounceToMembership();
+        FlushPending();
         NoteVisibility();
 
         var message = sharing
@@ -177,8 +179,7 @@ public sealed class TeamService : ITeamService, IDisposable
     private void OnLeaveWorld()
     {
         _ready = false;
-        _pending.Clear();
-        _unverifiedLog.Clear();
+        _outbox.Clear();
         _membershipKey = "";
         _visibleKey = "";
         _worldId = "";
@@ -201,7 +202,7 @@ public sealed class TeamService : ITeamService, IDisposable
         var key = MembershipKey(groups);
         if (!string.Equals(key, _membershipKey, StringComparison.Ordinal))
         {
-            ApplyMembership(groups, announce: true);
+            ApplyMembership(groups);
             NoteVisibility();
         }
 
@@ -210,32 +211,33 @@ public sealed class TeamService : ITeamService, IDisposable
 
     private void OnChatMessage(int groupId, string message, EnumChatType chattype, string data)
     {
+        // The server replaces client chat data. The payload is read only from
+        // the text after the server name prefix.
+        _ = data;
         if (!_ready)
         {
             return;
         }
 
-        if (chattype is not (EnumChatType.OthersMessage or EnumChatType.OwnMessage))
+        var kind = chattype switch
         {
-            return;
-        }
+            EnumChatType.OwnMessage => ShareChatKind.Own,
+            EnumChatType.OthersMessage => ShareChatKind.Other,
+            _ => ShareChatKind.Ignored,
+        };
 
-        if (!ShareAnnouncement.TryParseIncoming(message, data, out var parsed))
-        {
-            return;
-        }
-
-        var disposition = _model.TryApplyChat(groupId, message, data, ReadOnlinePlayers());
-        if (disposition == ShareChatDisposition.Applied)
+        PublishLocal();
+        var receipt = _session.Receive(kind, groupId, message, ReadOnlinePlayers());
+        if (receipt.Disposition == ShareChatDisposition.Applied)
         {
             NoteVisibility();
-            return;
+        }
+        else if (receipt.Disposition == ShareChatDisposition.Unverified)
+        {
+            NoteUnverified(receipt);
         }
 
-        if (disposition == ShareChatDisposition.Unverified)
-        {
-            NoteUnverified(parsed);
-        }
+        FlushPending();
     }
 
     private void TryEnterWorld()
@@ -255,76 +257,43 @@ public sealed class TeamService : ITeamService, IDisposable
         _store = LoadStore();
         _model.SetLocalPlayer(player.PlayerUID);
         _ready = true;
-        ApplyMembership(ReadGroups(), announce: true);
+        ApplyMembership(ReadGroups());
         NoteVisibility();
     }
 
-    private void ApplyMembership(IReadOnlyList<TeamGroup> groups, bool announce)
+    private void ApplyMembership(IReadOnlyList<TeamGroup> groups)
     {
         _membershipKey = MembershipKey(groups);
-        _model.SetMembership(groups);
+        PublishLocal();
+        _session.ReplaceMembership(groups);
         _model.SetRestrictionName(_store.TeamGroup(_worldId));
-        if (announce)
-        {
-            EnqueueAnnouncements();
-        }
+        FlushPending();
     }
 
-    private void EnqueueAnnouncements()
+    private void PublishLocal()
     {
-        var player = _capi.World?.Player;
-        if (player is null || string.IsNullOrEmpty(player.PlayerUID))
-        {
-            return;
-        }
-
-        var uid = player.PlayerUID;
-        var name = string.IsNullOrWhiteSpace(player.PlayerName) ? "A player" : player.PlayerName;
-        var sharing = _store.IsSharing(_worldId);
-        var text = ShareAnnouncement.FormatChatMessage(name, sharing, uid);
-        var data = ShareAnnouncement.FormatPayload(sharing, uid);
-        var memberIds = new HashSet<int>();
-        foreach (var group in _model.Membership)
-        {
-            memberIds.Add(group.GroupId);
-            _pending[group.GroupId] = new PendingAnnouncement(text, data);
-        }
-
-        foreach (var groupId in _pending.Keys.ToArray())
-        {
-            if (!memberIds.Contains(groupId))
-            {
-                _pending.Remove(groupId);
-            }
-        }
-
-        FlushPending();
+        var name = _capi.World?.Player?.PlayerName;
+        _session.LocalName = string.IsNullOrWhiteSpace(name) ? "" : name;
+        _session.Sharing = _store.IsSharing(_worldId);
     }
 
     private void FlushPending()
     {
-        if (_pending.Count == 0)
+        if (!_outbox.TryTake(out var groupId, out var text))
         {
             return;
         }
 
-        var now = Environment.TickCount64;
-        if (_lastSendAt != long.MinValue && now - _lastSendAt < SendSpacingMs)
-        {
-            return;
-        }
-
-        var groupId = _pending.Keys.First();
-        var pending = _pending[groupId];
-        _pending.Remove(groupId);
-        _lastSendAt = now;
+        var data = ShareAnnouncement.TryParsePayload(text, out var notice)
+            ? ShareAnnouncement.FormatPayload(notice.Sharing, notice.PlayerUid)
+            : "";
         try
         {
-            _capi.SendChatMessage(pending.Text, groupId, pending.Data);
+            _capi.SendChatMessage(text, groupId, data);
         }
         catch (Exception ex)
         {
-            _logger.Warning("Could not announce Wayfinding share state to group " + groupId + ": " + ex.Message);
+            _log.Log(LogLevel.Warning, "Could not announce Wayfinding share state to group " + groupId + ": " + ex.Message);
         }
     }
 
@@ -361,29 +330,26 @@ public sealed class TeamService : ITeamService, IDisposable
 
         foreach (var player in players)
         {
-            // Entity id exists only on the loaded entity. An online player
-            // whose entity is not loaded cannot be matched to from: <id>,
-            // so the announcement fails closed.
-            if (player is null || player.Entity is null || string.IsNullOrEmpty(player.PlayerUID))
+            // Name and uid are present for players whose entities are not loaded.
+            if (player is null || string.IsNullOrEmpty(player.PlayerUID) || string.IsNullOrEmpty(player.PlayerName))
             {
                 continue;
             }
 
-            list.Add(new OnlinePlayer(player.PlayerUID, player.Entity.EntityId, true));
+            list.Add(new OnlinePlayer(player.PlayerName, player.PlayerUID));
         }
 
         return list;
     }
 
-    private void NoteUnverified(ParsedShareChat parsed)
+    private void NoteUnverified(ShareReceipt receipt)
     {
-        var key = parsed.SenderEntityId is long entityId
-            ? "entity:" + entityId.ToString(CultureInfo.InvariantCulture)
-            : "uid:" + parsed.Notice.PlayerUid;
-        _unverifiedLog.Debug(
-            _logger,
-            key,
-            "Wayfinding ignored an unverified share announcement (" + key + ").");
+        var key = receipt.SenderName.Length > 0
+            ? "share-name:" + receipt.SenderName
+            : receipt.PayloadUid.Length > 0
+                ? "share-payload:" + receipt.PayloadUid
+                : "share-unresolved";
+        _log.LogOnce(key, LogLevel.Debug, "Ignored an unverified share announcement.");
     }
 
     private string CurrentWorldId()
@@ -397,7 +363,7 @@ public sealed class TeamService : ITeamService, IDisposable
         if (!_loggedWorldFallback)
         {
             _loggedWorldFallback = true;
-            _logger.Warning("SavegameIdentifier was empty. Wayfinding share settings are keyed by world seed.");
+            _log.Log(LogLevel.Warning, "SavegameIdentifier was empty. Wayfinding share settings are keyed by world seed.");
         }
 
         var seed = _capi.World?.Seed ?? 0;
@@ -429,7 +395,7 @@ public sealed class TeamService : ITeamService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning("Could not read Wayfinding team settings: " + ex.Message);
+            _log.Log(LogLevel.Warning, "Could not read Wayfinding team settings: " + ex.Message);
             return new ShareStateStore();
         }
     }
@@ -453,7 +419,7 @@ public sealed class TeamService : ITeamService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning("Could not save Wayfinding team settings: " + ex.Message);
+            _log.Log(LogLevel.Warning, "Could not save Wayfinding team settings: " + ex.Message);
         }
     }
 
@@ -479,9 +445,11 @@ public sealed class TeamService : ITeamService, IDisposable
         }
 
         _visibleKey = key;
-        _logger.Notification(visible.Count == 0
-            ? "Wayfinding teammates visible: none"
-            : "Wayfinding teammates visible: " + key);
+        _log.Log(
+            LogLevel.Debug,
+            visible.Count == 0
+                ? "Wayfinding teammates visible: none"
+                : "Wayfinding teammates visible: " + key);
     }
 
     private static string MembershipKey(IReadOnlyList<TeamGroup> groups)
@@ -492,7 +460,10 @@ public sealed class TeamService : ITeamService, IDisposable
             .Select(group => group.GroupId.ToString(CultureInfo.InvariantCulture) + "=" + group.Name));
     }
 
-    private readonly record struct PendingAnnouncement(string Text, string Data);
+    private sealed class GameTickClock : ITeamClock
+    {
+        public long Milliseconds => Environment.TickCount64;
+    }
 }
 
 public sealed class TeamClientConfig
