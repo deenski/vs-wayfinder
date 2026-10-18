@@ -72,12 +72,13 @@ public class InfraBoundaryTests
     // GetOrCreate("nav") may appear only in these files. One command root; the
     // allowlisted call sites share it. Create("nav") and RegisterCommand("nav"
     // are banned in every Wayfinding source file.
-    // When KAN-21 (PR #8) lands, add "Teams/TeamService.cs" here. That file
-    // shares this root for share and team. Do not allow it to call Create.
+    // TeamService registers share and team on the root NavCommands creates.
+    // It is allowlisted with that root. It must not call Create("nav").
     private static readonly string[] NavGetOrCreateAllowlist =
     {
         "Commands/NavCommands.cs",
         "Commands/NavTargetCommands.cs",
+        "Teams/TeamService.cs",
     };
 
     [Fact]
