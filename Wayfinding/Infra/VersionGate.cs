@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 
 namespace Wayfinding.Infra;
 
@@ -8,6 +9,7 @@ public sealed class VersionGate
 {
     private readonly Dictionary<Feature, FeatureState> states = new();
     private readonly HashSet<Feature> notified = new();
+    private bool evaluated;
 
     public VersionGate()
     {
@@ -17,11 +19,16 @@ public sealed class VersionGate
         }
     }
 
-    public bool IsEvaluated { get; private set; }
+    public bool IsEvaluated => Volatile.Read(ref evaluated);
 
     public bool IsEnabled(Feature feature)
     {
-        return IsEvaluated && states[feature].Enabled;
+        if (!Volatile.Read(ref evaluated))
+        {
+            return false;
+        }
+
+        return states[feature].Enabled;
     }
 
     public FeatureState State(Feature feature)
@@ -74,7 +81,8 @@ public sealed class VersionGate
             log.LogOnce("gate:" + feature, LogLevel.Warning, DisabledMessage(feature, missingText));
         }
 
-        IsEvaluated = true;
+        // Publish only after every state write. A reader that sees true also sees those states.
+        Volatile.Write(ref evaluated, true);
         log.Log(LogLevel.Notice, Summary());
     }
 

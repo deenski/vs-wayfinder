@@ -3,8 +3,8 @@ using System;
 namespace Wayfinding.Infra;
 
 /// <summary>
-/// Wraps one draw delegate. A throw is logged once and that delegate is
-/// skipped afterwards. Nothing else is touched.
+/// One guard per layer. A throw is logged once and disables that layer, so
+/// later draws on this guard are skipped. Other guards are left alone.
 /// </summary>
 public sealed partial class RenderGuard
 {
