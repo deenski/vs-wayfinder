@@ -6,9 +6,8 @@ namespace Wayfinding.Snapshot;
 /// Remembers the last per-frame snapshot cost and optionally forwards it.
 /// </summary>
 /// <remarks>
-/// <c>.nav stats</c> reads <see cref="LastMilliseconds"/>. KAN-18's <c>PlanMetrics</c> is not on main;
-/// set <see cref="Forward"/> to an adapter that calls <c>PlanMetrics.RecordSnapshotMs</c> when it lands.
-/// This type does not reference <c>PlanMetrics</c> or <c>WayfindingLog</c>.
+/// <see cref="LastMilliseconds"/> is the latest sample. <see cref="Forward"/> is
+/// <c>PlanMetrics.RecordSnapshotMs</c>, which <c>.nav stats</c> prints as snapshot ms/frame.
 /// </remarks>
 public sealed class SnapshotStatsSink : ISnapshotFrameStats
 {

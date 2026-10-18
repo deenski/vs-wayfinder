@@ -2,6 +2,7 @@ using System;
 using Vintagestory.API.Common;
 using Vintagestory.API.Config;
 using Vintagestory.API.MathTools;
+using Wayfinding.Infra;
 using Wayfinding.Pathing.Grid;
 
 namespace Wayfinding.Snapshot;
@@ -29,7 +30,7 @@ public sealed class SnapshotBuilderSystem : ModSystem
     private bool smokeStarted;
     private int smokeTicks;
 
-    /// <summary>Per-frame snapshot cost. Forward this to <c>PlanMetrics.RecordSnapshotMs</c> when KAN-18 is on main.</summary>
+    /// <summary>Per-frame snapshot cost. Each sample is also forwarded to <see cref="PlanMetrics.RecordSnapshotMs"/>.</summary>
     public SnapshotStatsSink Stats => stats;
 
     /// <summary>Milliseconds of the latest slice, for <c>.nav stats</c>. Null until the first slice.</summary>
@@ -46,6 +47,7 @@ public sealed class SnapshotBuilderSystem : ModSystem
     {
         this.api = api;
         guard = new MainThreadGuard();
+        stats.Forward = new PlanMetricsFrameStats(api.ModLoader.GetModSystem<WayfindingModSystem>().Metrics);
         listenerId = api.Event.RegisterGameTickListener(OnTick, TickIntervalMs);
         listening = true;
     }

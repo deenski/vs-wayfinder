@@ -5,10 +5,9 @@ namespace Wayfinding.Pathing.Grid;
 /// can show snapshot ms/frame.
 /// </summary>
 /// <remarks>
-/// KAN-18's <c>PlanMetrics.RecordSnapshotMs(double)</c> is the consumer once that type is on main.
-/// It is not on main (it lives on PR #5). This interface is the seam. This branch does not copy
-/// <c>PlanMetrics</c> or <c>WayfindingLog</c>. A later change forwards
-/// <see cref="RecordSnapshotMs"/> to <c>PlanMetrics.RecordSnapshotMs</c>.
+/// Pathing stays free of the mod. <c>PlanMetrics.RecordSnapshotMs</c> on main is the consumer:
+/// the game adapter forwards each sample to it, and <c>.nav stats</c> prints
+/// <c>snapshot ms/frame</c> from that value.
 /// </remarks>
 public interface ISnapshotFrameStats
 {
