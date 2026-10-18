@@ -129,7 +129,6 @@ public partial class WayfindingModSystem : ModSystem
         {
             capi.Event.LevelFinalize -= OnLevelFinalize;
             capi.Event.LeaveWorld -= OnLeaveWorld;
-            capi = null;
         }
 
         // Arrival (KAN-23) before the tether (KAN-22). The tether reads TeamService
@@ -142,6 +141,7 @@ public partial class WayfindingModSystem : ModSystem
         navigation?.OnLeaveWorld();
         navigation?.Dispose();
         navigation = null;
+        capi = null;
         base.Dispose();
     }
 }
