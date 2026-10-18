@@ -4,13 +4,18 @@ using Vintagestory.API.Common;
 using Vintagestory.API.Server;
 using Vintagestory.GameContent;
 using Wayfinding.Infra;
+using Wayfinding.Pathing.Teams;
+using Wayfinding.Teams;
 
 namespace Wayfinding;
 
 public partial class WayfindingModSystem : ModSystem
 {
     private ICoreClientAPI? capi;
+    private TeamService? _teams;
     private ClientNavSession? navigation;
+
+    public ITeamService? Teams => _teams;
 
     public VersionGate Gate { get; } = new();
 
@@ -68,8 +73,11 @@ public partial class WayfindingModSystem : ModSystem
 
         api.Event.LevelFinalize += OnLevelFinalize;
         api.Event.LeaveWorld += OnLeaveWorld;
-        NavCommands.Register(api, this);
-        navigation = NavTargetCommands.Register(api, this);
+        // NavCommands owns the one .nav root. share and team are subcommands of it.
+        _teams = new TeamService(api, Log);
+        NavCommands.Register(api, this, _teams);
+        _teams.Start();
+        navigation = NavTargetCommands.Register(api, this, _teams);
         RegisterTeammateTether(api);
         RegisterDimensionAndArrival(api);
     }
@@ -122,6 +130,8 @@ public partial class WayfindingModSystem : ModSystem
             capi = null;
         }
 
+        _teams?.Dispose();
+        _teams = null;
         // Arrival (KAN-23) before the tether (KAN-22). Both hooks are safe when
         // their Register methods never ran, including on the server instance.
         DisposeDimensionAndArrival();

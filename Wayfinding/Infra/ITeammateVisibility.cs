@@ -3,10 +3,10 @@ namespace Wayfinding.Infra;
 /// <summary>
 /// Whether a player may be targeted. Design §4: no line, marker, distance, or
 /// tether for anyone who is not a visible teammate.
-/// Today the argument is the name typed into <c>.nav player</c>. KAN-21's
-/// <c>ITeamService.IsVisibleTeammate</c> takes a uid, so wiring it needs a
-/// server-side name-to-uid lookup. Until that lookup exists, the default
-/// implementation fails closed and no name is accepted.
+/// The argument is the name typed into <c>.nav player</c>, or a uid.
+/// TeamService resolves a name with a client-side name-to-uid lookup through
+/// AllOnlinePlayers and fails closed: an unknown name is not visible.
+/// When no team service is passed, the default denies every name.
 /// </summary>
 public interface ITeammateVisibility
 {
@@ -14,7 +14,7 @@ public interface ITeammateVisibility
 }
 
 /// <summary>
-/// Denies every player. This is the stand-in until KAN-21's team service is wired.
+/// Denies every player. Used when no team service is passed in.
 /// </summary>
 public sealed class NoTeammateVisibility : ITeammateVisibility
 {

@@ -3,17 +3,17 @@ using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Server;
 using Wayfinding.Infra;
+using Wayfinding.Teams;
 
 namespace Wayfinding;
 
 public static class NavCommands
 {
-    public static void Register(ICoreClientAPI capi, WayfindingModSystem mod)
+    public static void Register(ICoreClientAPI capi, WayfindingModSystem mod, TeamService teams)
     {
         // One .nav root. GetOrCreate so NavTargetCommands and a later registrar can add
-        // subcommands without Create throwing when this root already exists. KAN-21 adds
-        // share and team on its own call. KAN-22 and KAN-23 extend this same instance
-        // through the stubs below.
+        // subcommands without Create throwing when this root already exists. share and
+        // team are registered on this instance. KAN-22 and KAN-23 extend it through the stubs below.
         IChatCommand nav = capi.ChatCommands
             .GetOrCreate("nav")
             .WithDescription("Wayfinding")
@@ -53,6 +53,7 @@ public static class NavCommands
                 .EndSubCommand()
             .EndSubCommand();
 
+        teams.RegisterSubcommands(nav);
         TeammateTetherCommands.Register(nav, mod);
         DimensionArrivalCommands.Register(nav, mod);
     }

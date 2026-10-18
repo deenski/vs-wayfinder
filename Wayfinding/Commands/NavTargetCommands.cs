@@ -10,9 +10,9 @@ namespace Wayfinding;
 
 public static class NavTargetCommands
 {
-    public static ClientNavSession Register(ICoreClientAPI capi, WayfindingModSystem mod)
+    public static ClientNavSession Register(ICoreClientAPI capi, WayfindingModSystem mod, ITeammateVisibility? teammates = null)
     {
-        var session = new ClientNavSession(capi, mod);
+        var session = new ClientNavSession(capi, mod, teammates);
         session.Start();
 
         // Same root as stats and debug. GetOrCreate does not replace that root.
@@ -27,7 +27,7 @@ public static class NavTargetCommands
             .EndSubCommand()
             .BeginSubCommand("player")
                 .WithDescription("Navigate to a visible teammate by name.")
-                .WithAdditionalInformation("The name is accepted only when teammate visibility allows it. Until team sharing is connected, this reports that teammate sharing isn't available yet.")
+                .WithAdditionalInformation("The name is accepted only when that player is a visible teammate.")
                 .RequiresPrivilege(Privilege.chat)
                 .WithArgs(parsers.OptionalAll("name"))
                 .HandleWith(args => session.Player(ArgText(args)))
@@ -66,10 +66,9 @@ public static class NavTargetCommands
 }
 
 /// <summary>
-/// Client adapter for <see cref="NavTargets"/>. Player targets stay denied
-/// until KAN-21. <c>ITeamService.IsVisibleTeammate</c> takes a uid, and this
-/// command only has a name, so wiring needs a server-side name-to-uid lookup.
-/// The gate fails closed until that lookup exists.
+/// Client adapter for <see cref="NavTargets"/>. Player targets go through
+/// <see cref="ITeammateVisibility"/>. TeamService does the server-side name-to-uid lookup
+/// through AllOnlinePlayers and fails closed: an unknown name is not visible.
 /// </summary>
 public sealed class ClientNavSession
 {
@@ -77,13 +76,11 @@ public sealed class ClientNavSession
     private readonly WayfindingModSystem mod;
     private long tickListener = -1;
 
-    public ClientNavSession(ICoreClientAPI capi, WayfindingModSystem mod)
+    public ClientNavSession(ICoreClientAPI capi, WayfindingModSystem mod, ITeammateVisibility? teammates = null)
     {
         this.capi = capi ?? throw new ArgumentNullException(nameof(capi));
         this.mod = mod ?? throw new ArgumentNullException(nameof(mod));
-        // Fail closed. KAN-21 must resolve the typed name to a uid on the server
-        // before ITeamService.IsVisibleTeammate can allow a player.
-        Targets = new NavTargets(new ClientNavTargetStore(capi, mod.Log));
+        Targets = new NavTargets(new ClientNavTargetStore(capi, mod.Log), teammates);
     }
 
     public NavTargets Targets { get; }

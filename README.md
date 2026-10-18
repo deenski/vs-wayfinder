@@ -71,3 +71,39 @@ Uploading to the Vintage Story Mod DB is a manual step. The tag workflow does no
 4. Add a release on that mod and upload the zip from the GitHub Release.
 5. Set the release version to the `version` in `modinfo.json`, select game compatibility 1.22, and paste the changelog.
 6. Publish the Mod DB release.
+
+## Teams
+
+A team is a vanilla player group. By default that is every group the local player is in. `.nav team <group>` limits who you see to one group, and `.nav team` with no argument clears that limit.
+
+Create a group and invite someone in game chat:
+
+```text
+/group create scouts
+/group invite Maili
+```
+
+Maili accepts the invite from the group chat. Only members can post in that channel.
+
+Share commands:
+
+```text
+.nav share on
+.nav share off
+.nav team
+.nav team scouts
+```
+
+Sharing is on until you turn it off. That flag, and the `.nav team` limit, are saved on this client for the current world. `.nav share` posts one line to every group you belong to, for example `[Wayfinding] Maili is sharing location` or `[Wayfinding] Maili stopped sharing location`. The same message carries `wayfinding:v1:share:on:<playerUid>` or `wayfinding:v1:share:off:<playerUid>`. Joining a world, or a change to your group list, posts the current choice again so someone who was offline can catch up. The client log lists who is currently visible (`Wayfinding teammates visible: ...`) at debug verbosity, until the map and tether draw them. The first time this session hears a player announce in a group, the client replies once in that group with its own current share state.
+
+The client cannot see another player's group membership. Position packets carry only the uid, X/Z, yaw, and despawn, so the only teammate evidence is a Wayfinding announcement in a group channel you are in. A remote player is shown only when both of these are true: you are in that group (and it is the group selected with `.nav team`, if you set one), and this session has seen a share-on announcement from that player in that channel. Anything unknown is hidden. Every later draw and target resolve has to ask `ITeamService.IsVisibleTeammate`. No line, marker, distance, or tether is shown otherwise.
+
+This is stricter than design v2 line 145. Players who do not run the mod cannot announce, and they are never shown. The visibility invariant wins over treating every group member as a teammate.
+
+The opt-out is client-only and best-effort:
+
+- Online teammates see a share change on the next chat message, which is immediate once the server accepts it. The next draw or resolve hides them. There is no server-side guarantee.
+- Vintage Story 1.22.7 does not relay the `data` argument of a client chat message. The server escapes `<` and `>` in typed text, then wraps the line as `<strong>PlayerName:</strong> ` (or the same tags inside a font color). The payload rides in that message, after the prefix. Sender checks are fail-closed and do not use the entity id. The name in the prefix is mapped through the online player list, including players whose entities are not loaded. The payload is read only from the text after the prefix. A typed forgery, a missing prefix, an unknown name, two players with the same name, or a uid that does not match that player drops a share-on: nothing is shown. The same unverified share-off still hides that uid, so a real opt-out is not kept on screen, and it does not add teammate evidence. A later verified share-on shows them again. The unverified line is logged once per sender, at debug level only.
+- The first verified announcement from a player in a group queues one reply with your own current share state to that group. A repeat does not. The reply merges into the one queued line for that group.
+- Your own chat echo is the acknowledgement. A share line is resent until that echo arrives, and at most five times if the echo never comes. Any echo of your own chat, including ordinary typed chat, restarts the 1100 ms spacing timer. The first channel is immediate. A long group list can take more than 5 seconds to finish.
+- Evidence about other players is kept only for this session. After a restart they stay hidden until they announce again. Leaving a group drops evidence for that channel, including if you rejoin, until a new announcement arrives.
