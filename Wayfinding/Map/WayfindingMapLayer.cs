@@ -147,6 +147,10 @@ public sealed class WayfindingMapLayer : MapLayer
         {
             NoteMeters(meters);
         }
+        else
+        {
+            labelText = null;
+        }
 
         if (labelText != null)
         {
@@ -536,10 +540,10 @@ public sealed class WayfindingMapLayer : MapLayer
         return false;
     }
 
-    static double PlayerFeetY(PacketPlayerPosition player)
+    static double? PlayerFeetY(PacketPlayerPosition player)
     {
         var entity = player.AssociatedPlayer?.Entity;
-        return entity != null ? entity.Pos.Y : 0;
+        return entity != null ? entity.Pos.Y : null;
     }
 
     static void SetFlatColor(IShaderProgram prog)
@@ -755,9 +759,9 @@ public sealed class WayfindingMapLayer : MapLayer
         return new SpawnOrigin(block.X, block.Z);
     }
 
-    static AbsoluteCoord FloorCoord(double x, double y, double z)
+    static AbsoluteCoord FloorCoord(double x, double? y, double z)
     {
-        return new AbsoluteCoord((int)Math.Floor(x), (int)Math.Floor(y), (int)Math.Floor(z));
+        return new AbsoluteCoord((int)Math.Floor(x), y is double feet ? (int)Math.Floor(feet) : null, (int)Math.Floor(z));
     }
 
     bool CtrlDown =>
