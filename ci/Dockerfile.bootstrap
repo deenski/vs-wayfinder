@@ -1,0 +1,6 @@
+# Empty package bootstrap. The build context is ci/bootstrap and contains no
+# game files. server-image.yml tags this image :bootstrap and never pushes it
+# as a server version. It exists so the GHCR package can be created, then set
+# private, before any Vintage Story files are published.
+FROM scratch
+COPY placeholder.txt /placeholder.txt
