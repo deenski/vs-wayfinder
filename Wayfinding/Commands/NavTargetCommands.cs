@@ -33,7 +33,7 @@ public static class NavTargetCommands
                 .HandleWith(args => session.Player(ArgText(args)))
             .EndSubCommand()
             .BeginSubCommand("coord")
-                .WithDescription("Navigate to coordinates. X and Z are spawn-relative, the way the map shows them. Y is absolute height.")
+                .WithDescription("Navigate to coordinates. X and Z are spawn-relative, the way the map shows them. Y is absolute height, from 0 up to the world height minus 1.")
                 .WithAdditionalInformation("X and Z are spawn-relative: absolute equals the displayed number plus the spawn block, matching the map and /waypoint list. Y, when given, is absolute height and is not offset by spawn.")
                 .WithExamples(".nav coord 10 -4", ".nav coord 10 70 -4")
                 .RequiresPrivilege(Privilege.chat)
@@ -66,10 +66,10 @@ public static class NavTargetCommands
 }
 
 /// <summary>
-/// Client adapter for <see cref="NavTargets"/>. The target model denies every
-/// player until a teammate-visibility implementation is passed in. After KAN-21
-/// merges, that is one constructor argument: the team service, which already
-/// has <c>IsVisibleTeammate</c>.
+/// Client adapter for <see cref="NavTargets"/>. Player targets stay denied
+/// until KAN-21. <c>ITeamService.IsVisibleTeammate</c> takes a uid, and this
+/// command only has a name, so wiring needs a server-side name-to-uid lookup.
+/// The gate fails closed until that lookup exists.
 /// </summary>
 public sealed class ClientNavSession
 {
@@ -81,7 +81,8 @@ public sealed class ClientNavSession
     {
         this.capi = capi ?? throw new ArgumentNullException(nameof(capi));
         this.mod = mod ?? throw new ArgumentNullException(nameof(mod));
-        // NoTeammateVisibility until KAN-21. Then: new NavTargets(store, teamService).
+        // Fail closed. KAN-21 must resolve the typed name to a uid on the server
+        // before ITeamService.IsVisibleTeammate can allow a player.
         Targets = new NavTargets(new ClientNavTargetStore(capi, mod.Log));
     }
 
@@ -159,7 +160,8 @@ public sealed class ClientNavSession
             return TextCommandResult.Error(error);
         }
 
-        return Reply(Targets.Coord(argument, spawn));
+        // MapSizeY is the world height in blocks. The range check lives in the parser.
+        return Reply(Targets.Coord(argument, spawn, MapHeight()));
     }
 
     public TextCommandResult Off()
@@ -261,6 +263,12 @@ public sealed class ClientNavSession
         }
 
         Targets.SetMapAllowed(allowed);
+    }
+
+    private int MapHeight()
+    {
+        var height = capi.World?.BlockAccessor?.MapSizeY ?? 0;
+        return height > 0 ? height : 0;
     }
 
     private bool TrySpawn(out SpawnOrigin spawn, out string error)
