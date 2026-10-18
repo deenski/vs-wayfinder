@@ -8,8 +8,8 @@ namespace Wayfinding.Pathing.Grid;
 /// New fields are added with defaults that mean "no information", so existing <see cref="IBlockGrid"/>
 /// implementations keep working. <c>default(BlockCell)</c> is an <see cref="CellClass.Unknown"/> cell with no
 /// flags and no measured step height.
-/// <see cref="Standability"/> and the climb model ignore <see cref="StepHeight"/> until KAN-26, so a slab stays
-/// <see cref="CellClass.Solid"/>.
+/// <see cref="StepHeight"/> is recorded here. <see cref="Standability"/> and the climb model do not read it yet
+/// (that fence and slab step is a follow-up), so a slab stays <see cref="CellClass.Solid"/>.
 /// </remarks>
 /// <param name="Class">The movement class of the cell.</param>
 /// <param name="Flags">Extra bits; <see cref="CellFlags.None"/> when nothing else is known.</param>

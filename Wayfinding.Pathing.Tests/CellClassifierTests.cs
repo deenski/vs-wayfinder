@@ -16,8 +16,10 @@ public class CellClassifierTests
     [Fact]
     public void Classification_FollowsTheContractOrder()
     {
-        Assert.Equal(CellClass.Lava, Classify(Fluid: ObservedFluid.Lava, BlockId: 9, TraversalCost: 99999, HasCollision: true));
+        Assert.Equal(CellClass.Solid, Classify(Fluid: ObservedFluid.Lava, BlockId: 9, TraversalCost: 99999, HasCollision: true));
+        Assert.Equal(CellClass.Lava, Classify(Fluid: ObservedFluid.Lava, BlockId: 9, TraversalCost: 99999, HasCollision: false));
         Assert.Equal(CellClass.Hazard, Classify(Fluid: ObservedFluid.Water, BlockId: 4, TraversalCost: 10000, HasCollision: false));
+        Assert.Equal(CellClass.Solid, Classify(Fluid: ObservedFluid.Water, BlockId: 4, TraversalCost: 10000, HasCollision: true));
         Assert.Equal(CellClass.Water, Classify(Fluid: ObservedFluid.Water, BlockId: 4, TraversalCost: 5, HasCollision: false));
         Assert.Equal(CellClass.Hazard, Classify(Fluid: ObservedFluid.None, BlockId: 12, TraversalCost: 10000, HasCollision: true));
         Assert.Equal(CellClass.Walkable, Classify(Fluid: ObservedFluid.None, BlockId: 7, TraversalCost: 9999, HasCollision: false));
@@ -40,6 +42,29 @@ public class CellClassifierTests
         Assert.Equal(CellClass.Solid, cell.Class);
         Assert.Equal(expected, cell.StepHeight);
         Assert.Equal(expected, CellClassifier.QuantizeStepHeight(y2));
+    }
+
+    [Fact]
+    public void CollisionBoxInWater_IsSolid_AndPlainWaterStaysWater()
+    {
+        var blocked = new CellSample(true, ObservedFluid.Water, BlockId: 11, TraversalCost: 5, HasCollision: true, MaxCollisionY2: 1f);
+        Assert.True(CellClassifier.TryClassify(blocked, out BlockCell solid));
+        Assert.Equal(CellClass.Solid, solid.Class);
+        Assert.Equal((byte)8, solid.StepHeight);
+
+        var water = new CellSample(true, ObservedFluid.Water, BlockId: 4, TraversalCost: 5, HasCollision: false);
+        Assert.True(CellClassifier.TryClassify(water, out BlockCell swim));
+        Assert.Equal(CellClass.Water, swim.Class);
+        Assert.Null(swim.StepHeight);
+    }
+
+    [Fact]
+    public void NanCollisionY2_StaysUnmeasured()
+    {
+        var sample = new CellSample(true, ObservedFluid.None, BlockId: 3, TraversalCost: 0, HasCollision: true, MaxCollisionY2: float.NaN);
+        Assert.True(CellClassifier.TryClassify(sample, out BlockCell cell));
+        Assert.Equal(CellClass.Solid, cell.Class);
+        Assert.Null(cell.StepHeight);
     }
 
     [Fact]

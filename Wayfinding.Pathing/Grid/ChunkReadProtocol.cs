@@ -64,8 +64,9 @@ public static class ChunkReadProtocol
     /// <param name="log">Optional order log. May be null.</param>
     /// <param name="confirmReadable">
     /// Optional check after a successful unpack and before the lock. The game adapter passes
-    /// <c>GetBlockOrNull</c> here. That call takes the same read lock, so it must not run while
-    /// the lock is already held. False skips the lock and leaves the chunk unknown.
+    /// <c>GetBlockOrNull</c> here. The 1.22.7 read lock is a counter, so a nested read on the same
+    /// thread does not deadlock; this check still runs before the lock because it is a one-time
+    /// loaded check. False skips the lock and leaves the chunk unknown.
     /// </param>
     /// <returns>True when the caller holds the lock and must <see cref="Close"/> it.</returns>
     public static bool TryOpen(IChunkReader reader, IChunkReadLog? log, Func<bool>? confirmReadable = null)

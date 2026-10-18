@@ -5,7 +5,9 @@ namespace Wayfinding.Pathing.Grid;
 /// </summary>
 /// <remarks>
 /// Order, from the <see cref="CellClass"/> contract:
-/// a liquid in the fluid layer is <see cref="CellClass.Water"/> or <see cref="CellClass.Lava"/>
+/// a collision box that also holds water or another fluid is <see cref="CellClass.Solid"/>
+/// (fluid wins only when the cell has no collision box);
+/// otherwise a liquid is <see cref="CellClass.Water"/> or <see cref="CellClass.Lava"/>
 /// (boiling water is a liquid whose Humanoid traversal cost is 99999, so it becomes
 /// <see cref="CellClass.Hazard"/>);
 /// otherwise a Humanoid traversal cost of <see cref="CellSample.HazardTraversalCost"/> or more is
@@ -14,8 +16,8 @@ namespace Wayfinding.Pathing.Grid;
 /// <see cref="CellClass.Walkable"/> otherwise;
 /// otherwise any collision box is <see cref="CellClass.Solid"/>.
 /// An unreadable sample is not classified: the caller leaves the cell <see cref="CellClass.Unknown"/>.
-/// When the sample has a collision box and a measured max Y2, <see cref="BlockCell.StepHeight"/> is that Y2
-/// in eighths of a block. The class does not change, so a slab stays <see cref="CellClass.Solid"/>.
+/// When the sample has a collision box and a measured finite max Y2, <see cref="BlockCell.StepHeight"/> is that Y2
+/// in eighths of a block. NaN is left unmeasured. The class does not change, so a slab stays <see cref="CellClass.Solid"/>.
 /// </remarks>
 public static class CellClassifier
 {
@@ -31,6 +33,13 @@ public static class CellClassifier
         {
             cell = BlockCell.Unknown;
             return false;
+        }
+
+        // A fence, slab, or stairs block sitting in water is a blocker, not a swim.
+        if (sample.HasCollision && sample.Fluid != ObservedFluid.None)
+        {
+            cell = Classified(CellClass.Solid, sample);
+            return true;
         }
 
         if (sample.Fluid == ObservedFluid.Lava)
@@ -87,7 +96,7 @@ public static class CellClassifier
     private static BlockCell Classified(CellClass cls, in CellSample sample)
     {
         byte? step = null;
-        if (sample.HasCollision && sample.MaxCollisionY2 is float y2)
+        if (sample.HasCollision && sample.MaxCollisionY2 is float y2 && !float.IsNaN(y2))
         {
             step = QuantizeStepHeight(y2);
         }
