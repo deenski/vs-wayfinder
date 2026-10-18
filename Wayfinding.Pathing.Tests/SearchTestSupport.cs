@@ -93,8 +93,18 @@ internal static class SearchTestSupport
     /// as an occupiable pillar top at <c>(UphillPenalty + buildPenalty) × blocks</c>. The step costs must add up to
     /// <see cref="FineRoute.Cost"/>, and build sites must match the build steps.
     /// </summary>
-    public static void AssertValid(IBlockGrid grid, FineRoute route, ClimbCostModel model, double buildPenalty = 24)
+    /// <param name="grid">The real terrain.</param>
+    /// <param name="route">The route.</param>
+    /// <param name="model">Its cost model.</param>
+    /// <param name="buildPenalty">Its per-block penalty.</param>
+    /// <param name="cumulative">
+    /// Check build legs against every block placed so far (all earlier sites plus this one) instead of the site's own
+    /// blocks only. Use it for <see cref="BuildPlanner"/> routes, whose later sites may omit a cell an earlier site
+    /// already filled (KAN-28 round 2).
+    /// </param>
+    public static void AssertValid(IBlockGrid grid, FineRoute route, ClimbCostModel model, double buildPenalty = 24, bool cumulative = false)
     {
+        var allPlaced = new List<GridPos>();
         Assert.True(route.HasRoute);
         Assert.Equal(MoveKind.Start, route.Steps[0].Kind);
         double sum = 0;
@@ -120,16 +130,25 @@ internal static class SearchTestSupport
             {
                 Assert.True(site < route.BuildSites.Count, $"build step {i} has no build site");
                 Assert.Equal(from, route.BuildSites[site].From);
-                legGrid = new OverlayGrid(grid, route.BuildSites[site].Blocks);
+                allPlaced.AddRange(route.BuildSites[site].Blocks);
+                legGrid = new OverlayGrid(grid, cumulative ? allPlaced.ToArray() : route.BuildSites[site].Blocks);
                 site++;
             }
 
             if (from.X == s.Pos.X && from.Z == s.Pos.Z)
             {
                 int blocks = s.Pos.Y - from.Y;
-                Assert.Equal(blocks, s.Blocks);
+                if (cumulative)
+                {
+                    Assert.InRange(s.Blocks, 0, blocks);
+                }
+                else
+                {
+                    Assert.Equal(blocks, s.Blocks);
+                }
+
                 Assert.True(Standability.Classify(legGrid, s.Pos, model.Options.HeadroomCells).IsOccupiable(), $"pillar top {s.Pos} is not occupiable");
-                Assert.Equal((model.Options.UphillPenalty + buildPenalty) * blocks, s.Cost, Eps);
+                Assert.Equal(model.Options.UphillPenalty * blocks + buildPenalty * s.Blocks, s.Cost, Eps);
             }
             else
             {
