@@ -326,6 +326,23 @@ public class TeammateTetherTests
     }
 
     [Fact]
+    public void Last_known_and_stale_markers_show_an_age_and_a_live_fix_does_not()
+    {
+        Assert.Null(TeammateAgeText.For(TeammateFixKind.None, TimeSpan.FromSeconds(12)));
+        Assert.Null(TeammateAgeText.For(TeammateFixKind.Live, TimeSpan.FromSeconds(12)));
+        Assert.Equal("12s", TeammateAgeText.For(TeammateFixKind.LastKnown, TimeSpan.FromSeconds(12)));
+        Assert.Equal("0s", TeammateAgeText.For(TeammateFixKind.LastKnown, TimeSpan.Zero));
+        Assert.Equal("30s", TeammateAgeText.For(TeammateFixKind.Stale, TimeSpan.FromMilliseconds(30_000)));
+        Assert.Equal("59s", TeammateAgeText.For(TeammateFixKind.Stale, TimeSpan.FromSeconds(59)));
+        Assert.Equal("1m", TeammateAgeText.For(TeammateFixKind.Stale, TimeSpan.FromSeconds(60)));
+        Assert.Equal("3m", TeammateAgeText.For(TeammateFixKind.LastKnown, TimeSpan.FromMinutes(3)));
+
+        var layer = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "Map", "WayfindingMapLayer.cs"));
+        Assert.Contains("TeammateAgeText.For", layer, StringComparison.Ordinal);
+        Assert.Contains("DistanceText.Format", layer, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Client_hook_ticks_from_the_game_listener_and_adds_no_nav_command()
     {
         var hook = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "WayfindingModSystem.TeammateTether.cs"));

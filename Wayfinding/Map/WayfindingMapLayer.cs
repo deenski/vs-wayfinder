@@ -431,14 +431,14 @@ public sealed class WayfindingMapLayer : MapLayer
         }
 
         long now = capi.World.ElapsedMilliseconds;
+        NoteMeters(meters);
+        if (labelText == null)
+        {
+            return;
+        }
+
         if (LabelUpload.ShouldUpload(meters, uploadedMeters, now, uploadedAtMs))
         {
-            NoteMeters(meters);
-            if (labelText == null)
-            {
-                return;
-            }
-
             labelFont ??= CairoFont.WhiteDetailText();
             capi.Gui.TextTexture.GenOrUpdateTextTexture(labelText, labelFont, ref labelTexture);
             uploadedMeters = meters;
@@ -961,13 +961,30 @@ public sealed class WayfindingMapLayer : MapLayer
 
     void NoteMeters(int meters)
     {
-        if (meters == labelMeters && labelText != null)
+        string text = DistanceText.Format(meters);
+        if (mod.TeammateSample is TeammateTetherSample sample)
+        {
+            string? age = TeammateAgeText.For(sample.Kind, sample.Age);
+            if (age != null)
+            {
+                text = text + " " + age;
+            }
+        }
+
+        if (meters == labelMeters && labelText == text)
         {
             return;
         }
 
+        // Age can change while the rounded meters stay put. The upload rule
+        // skips an unchanged distance, so an age-only change uploads once.
+        if (meters == labelMeters)
+        {
+            uploadedMeters = -1;
+        }
+
         labelMeters = meters;
-        labelText = DistanceText.Format(meters);
+        labelText = text;
     }
 
     bool TryMeters(out int meters)
