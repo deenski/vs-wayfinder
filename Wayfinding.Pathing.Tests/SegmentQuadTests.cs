@@ -52,5 +52,13 @@ public class SegmentQuadTests
         Span<DashSegment> dashes = stackalloc DashSegment[4];
         Assert.Equal(-1, DashLayout.Copy(0, 0, 5, 0, 7, 5, 300, dashes));
         Assert.Equal(-1, DashLayout.Copy(0, 0, 10_000, 0, 7, 5, 10, dashes));
+        Assert.Equal(-1, DashLayout.Copy(0, 0, 20, 0, 0, 5, 300, dashes));
+    }
+
+    [Fact]
+    public void Subpixel_segment_returns_zero()
+    {
+        Span<DashSegment> dashes = stackalloc DashSegment[2];
+        Assert.Equal(0, DashLayout.Copy(0, 0, 0.4f, 0, 7, 5, 300, dashes));
     }
 }

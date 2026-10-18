@@ -45,8 +45,13 @@ public readonly struct DashSegment
 }
 
 /// <summary>
-/// Screen-space dashes. A return of -1 means "draw one solid quad" (too short, or so long
-/// that dashing would exceed <paramref name="maxDashes"/>).
+/// Screen-space dashes.
+/// Returns 0 when the segment is shorter than 1 pixel, so there is nothing to draw.
+/// Returns -1 when the caller should draw one solid quad: <paramref name="dashLength"/> is not
+/// positive, <paramref name="maxDashes"/> is below 1, the dash step is not positive, the segment
+/// is no longer than one dash, or the dash count would exceed <paramref name="maxDashes"/>.
+/// A positive return is how many dashes the segment produces. Only
+/// <c>min(count, destination.Length)</c> of them are written.
 /// </summary>
 public static class DashLayout
 {

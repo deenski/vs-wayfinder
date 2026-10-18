@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
@@ -32,6 +33,9 @@ public sealed class DebugMapLayer : MapLayer
     readonly Vec4f knownColor = new(0.27f, 0.51f, 0.71f, 0.95f);
     readonly Vec4f unknownColor = new(0.75f, 0.75f, 0.75f, 0.55f);
     readonly Vec4f buildColor = new(1f, 0.62f, 0.12f, 0.95f);
+    readonly Vec4f restoreColor = new(1f, 1f, 1f, 1f);
+    readonly float[] savedModelView = new float[16];
+    readonly float[] savedProjection = new float[16];
     Vec2f viewA = new();
     Vec3d worldScratch = new();
     Vec3d iconScratch = new();
@@ -43,6 +47,10 @@ public sealed class DebugMapLayer : MapLayer
     double targetZ;
     bool guardDisabled;
     bool guardLogged;
+    bool inputDisabled;
+    bool inputLogged;
+    bool clickDisabled;
+    bool clickLogged;
     bool armThrow;
     float dragPixels;
     bool dragOpen;
@@ -70,6 +78,8 @@ public sealed class DebugMapLayer : MapLayer
             : "no target";
         return target
             + (guardDisabled ? "; render guard disabled the layer" : "")
+            + (inputDisabled ? "; hit-testing disabled" : "")
+            + (clickDisabled ? "; world click disabled" : "")
             + (armThrow ? "; render exception armed" : "")
             + (Active ? "" : "; tab hidden")
             + (lastHit is null ? "" : "; last hit " + lastHit);
@@ -164,13 +174,19 @@ public sealed class DebugMapLayer : MapLayer
             dragPixels = 0;
         }
 
-        if (!CtrlDown || !TryViewPoint(args, mapElem, out float mouseX, out float mouseY))
+        if (!Active || inputDisabled || !CtrlDown || !TryViewPoint(args, mapElem, out float mouseX, out float mouseY))
         {
             return;
         }
 
-        string hint = DescribeHit(mapElem, mouseX, mouseY);
-        hoverText.AppendLine("Ctrl+click: " + hint);
+        try
+        {
+            hoverText.AppendLine("Ctrl+click: " + DescribeHit(mapElem, mouseX, mouseY));
+        }
+        catch (Exception e)
+        {
+            NoteInputFailure(e);
+        }
     }
 
     public override void OnMouseUpClient(MouseEvent args, GuiElementMap mapElem)
@@ -184,18 +200,47 @@ public sealed class DebugMapLayer : MapLayer
         bool dragged = MapClick.IsDrag(dragPixels);
         dragPixels = 0;
         dragOpen = false;
-        if (!MapClick.IsNavigationClick(MapMouseButton.Left, ctrlHeld: true, dragged, inside))
+        if (!Active || !MapClick.IsNavigationClick(MapMouseButton.Left, ctrlHeld: true, dragged, inside))
         {
             return;
         }
 
         // Leave Handled false. GuiDialogWorldMap skips GuiElementMap.OnMouseUp when a layer
         // sets Handled, and that is what clears IsDragingMap.
-        mapElem.TranslateViewPosToWorldPos(new Vec2f(mouseX, mouseY), ref worldScratch);
-        double x = worldScratch.X;
-        double y = worldScratch.Y;
-        double z = worldScratch.Z;
-        string hit = DescribeHit(mapElem, mouseX, mouseY);
+        if (clickDisabled)
+        {
+            return;
+        }
+
+        double x;
+        double y;
+        double z;
+        try
+        {
+            mapElem.TranslateViewPosToWorldPos(new Vec2f(mouseX, mouseY), ref worldScratch);
+            x = worldScratch.X;
+            y = worldScratch.Y;
+            z = worldScratch.Z;
+        }
+        catch (Exception e)
+        {
+            NoteClickFailure(e);
+            return;
+        }
+
+        string hit = "empty";
+        if (!inputDisabled)
+        {
+            try
+            {
+                hit = DescribeHit(mapElem, mouseX, mouseY);
+            }
+            catch (Exception e)
+            {
+                NoteInputFailure(e);
+            }
+        }
+
         SetTarget(x, y, z, hit);
 
         var spawn = capi.World.DefaultSpawnPosition.AsBlockPos;
@@ -215,6 +260,30 @@ public sealed class DebugMapLayer : MapLayer
         {
             Instance = null;
         }
+    }
+
+    void NoteInputFailure(Exception e)
+    {
+        inputDisabled = true;
+        if (inputLogged)
+        {
+            return;
+        }
+
+        inputLogged = true;
+        api.Logger.Error("[wayfinding] debug map hit-testing disabled after an input error: " + e);
+    }
+
+    void NoteClickFailure(Exception e)
+    {
+        clickDisabled = true;
+        if (clickLogged)
+        {
+            return;
+        }
+
+        clickLogged = true;
+        api.Logger.Error("[wayfinding] debug map world click disabled after a coordinate error: " + e);
     }
 
     void SetTarget(double x, double y, double z, string hit)
@@ -238,10 +307,14 @@ public sealed class DebugMapLayer : MapLayer
 
         IShaderProgram prog = capi.Render.GetEngineShader(EnumShaderProgram.Gui);
         capi.Render.PushScissor(map.Bounds, true);
+        bool restoreUniforms = false;
         try
         {
+            CopyMatrix(capi.Render.CurrentModelviewMatrix, savedModelView);
+            CopyMatrix(capi.Render.CurrentProjectionMatrix, savedProjection);
+            restoreUniforms = true;
             SetFlatColor(prog);
-            prog.UniformMatrix("projectionMatrix", capi.Render.CurrentProjectionMatrix);
+            prog.UniformMatrix("projectionMatrix", savedProjection);
 
             double x0 = pos.X;
             double z0 = pos.Z;
@@ -253,7 +326,11 @@ public sealed class DebugMapLayer : MapLayer
         }
         finally
         {
-            prog.Uniform("noTexture", 0f);
+            if (restoreUniforms)
+            {
+                RestoreGuiUniforms(prog);
+            }
+
             capi.Render.PopScissor();
         }
     }
@@ -335,21 +412,26 @@ public sealed class DebugMapLayer : MapLayer
 
         float waypointHalf = RuntimeEnv.GUIScale * 8f;
         float playerHalf = (float)GuiElement.scaled(5);
-        string? best = null;
         float bestDistance = float.MaxValue;
+        Waypoint? hitWaypoint = null;
+        PacketPlayerPosition? hitPlayer = null;
 
-        var waypoints = capi.ModLoader.GetModSystem<WorldMapManager>().MapLayers;
         WaypointMapLayer? waypointLayer = null;
-        for (int i = 0; i < waypoints.Count; i++)
+        PlayerMapLayer? playerLayer = null;
+        var layers = capi.ModLoader.GetModSystem<WorldMapManager>().MapLayers;
+        for (int i = 0; i < layers.Count; i++)
         {
-            if (waypoints[i] is WaypointMapLayer layer)
+            if (layers[i] is WaypointMapLayer waypoints)
             {
-                waypointLayer = layer;
-                break;
+                waypointLayer = waypoints;
+            }
+            else if (layers[i] is PlayerMapLayer players)
+            {
+                playerLayer = players;
             }
         }
 
-        if (waypointLayer != null)
+        if (waypointLayer is { Active: true })
         {
             for (int i = 0; i < waypointLayer.ownWaypoints.Count; i++)
             {
@@ -369,59 +451,74 @@ public sealed class DebugMapLayer : MapLayer
                     y = Math.Clamp(y, ArrowBorder, (float)map.Bounds.InnerHeight - ArrowBorder);
                 }
 
-                Consider(x, y, waypointHalf, "waypoint '" + wp.Title + "' " + wp.Guid, ref best, ref bestDistance, mouseX, mouseY);
+                if (TryCloser(x, y, waypointHalf, mouseX, mouseY, ref bestDistance))
+                {
+                    hitWaypoint = wp;
+                    hitPlayer = null;
+                }
             }
         }
 
-        var tracking = capi.ModLoader.GetModSystem<SystemRemotePlayerTracking>();
-        foreach (PacketPlayerPosition packet in tracking.GetAllTrackedPlayerPositions())
+        if (playerLayer is { Active: true })
         {
-            IPlayer? player = packet.AssociatedPlayer ?? capi.World.PlayerByUid(packet.PlayerUid);
-            double px;
-            double pz;
-            if (player?.Entity != null)
+            foreach (PacketPlayerPosition packet in playerLayerPositionSource())
             {
-                px = player.Entity.Pos.X;
-                pz = player.Entity.Pos.Z;
+                IPlayer? player = packet.AssociatedPlayer;
+                double px = player?.Entity != null ? player.Entity.Pos.X : packet.PosX;
+                double pz = player?.Entity != null ? player.Entity.Pos.Z : packet.PosZ;
+                iconScratch.Set(px, 0, pz);
+                map.TranslateWorldPosToViewPos(iconScratch, ref viewA);
+                if (TryCloser(viewA.X, viewA.Y, playerHalf, mouseX, mouseY, ref bestDistance))
+                {
+                    hitPlayer = packet;
+                    hitWaypoint = null;
+                }
             }
-            else
-            {
-                px = packet.PosX;
-                pz = packet.PosZ;
-            }
-
-            iconScratch.Set(px, 0, pz);
-            map.TranslateWorldPosToViewPos(iconScratch, ref viewA);
-            string name = player?.PlayerName ?? packet.PlayerUid;
-            Consider(viewA.X, viewA.Y, playerHalf, "player '" + name + "' " + packet.PlayerUid, ref best, ref bestDistance, mouseX, mouseY);
         }
 
-        return best ?? "empty";
+        if (hitWaypoint != null)
+        {
+            return "waypoint '" + hitWaypoint.Title + "' " + hitWaypoint.Guid;
+        }
+
+        if (hitPlayer != null)
+        {
+            IPlayer? player = hitPlayer.AssociatedPlayer ?? capi.World.PlayerByUid(hitPlayer.PlayerUid);
+            string name = player?.PlayerName ?? hitPlayer.PlayerUid;
+            return "player '" + name + "' " + hitPlayer.PlayerUid;
+        }
+
+        return "empty";
+
+        IEnumerable<PacketPlayerPosition> playerLayerPositionSource()
+        {
+            return capi!.ModLoader.GetModSystem<SystemRemotePlayerTracking>().GetAllTrackedPlayerPositions();
+        }
     }
 
-    static void Consider(
+    static bool TryCloser(
         float iconX,
         float iconY,
         float half,
-        string label,
-        ref string? best,
-        ref float bestDistance,
         float mouseX,
-        float mouseY)
+        float mouseY,
+        ref float bestDistance)
     {
         if (!MapHitTest.InsideSquare(iconX, iconY, mouseX, mouseY, half))
         {
-            return;
+            return false;
         }
 
         float dx = iconX - mouseX;
         float dy = iconY - mouseY;
         float distance = dx * dx + dy * dy;
-        if (distance < bestDistance)
+        if (distance >= bestDistance)
         {
-            bestDistance = distance;
-            best = label;
+            return false;
         }
+
+        bestDistance = distance;
+        return true;
     }
 
     static bool ToScreen(GuiElementMap map, double worldX, double worldZ, out float screenX, out float screenY)
@@ -473,5 +570,32 @@ public sealed class DebugMapLayer : MapLayer
         prog.Uniform("applyAnimation", 0);
         prog.Uniform("applyModelMat", 0);
         prog.Uniform("extraGlow", 0);
+    }
+
+    void RestoreGuiUniforms(IShaderProgram prog)
+    {
+        // No getters on IShaderProgram. Put back the flags vanilla map icons set,
+        // rgbaIn to white, and the matrices captured from IRenderAPI before the draw.
+        prog.Uniform("noTexture", 0f);
+        prog.Uniform("alphaTest", 0f);
+        prog.Uniform("darkEdges", 0);
+        prog.Uniform("transparentCenter", 0);
+        prog.Uniform("normalShaded", 0);
+        prog.Uniform("tempGlowMode", 0);
+        prog.Uniform("sepiaLevel", 0f);
+        prog.Uniform("damageEffect", 0f);
+        prog.Uniform("overlayOpacity", 0f);
+        prog.Uniform("applyColor", 0);
+        prog.Uniform("applyAnimation", 0);
+        prog.Uniform("applyModelMat", 0);
+        prog.Uniform("extraGlow", 0);
+        prog.Uniform("rgbaIn", restoreColor);
+        prog.UniformMatrix("modelViewMatrix", savedModelView);
+        prog.UniformMatrix("projectionMatrix", savedProjection);
+    }
+
+    static void CopyMatrix(float[] source, float[] destination)
+    {
+        Array.Copy(source, destination, 16);
     }
 }
