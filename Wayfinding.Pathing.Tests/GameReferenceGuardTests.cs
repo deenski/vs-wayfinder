@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Xml.Linq;
 
@@ -16,6 +17,7 @@ public class GameReferenceGuardTests
         "0Harmony",
         "cairo-sharp",
         "CairoSharp",
+        "Vintagestory",
     ];
 
     [Fact]
@@ -56,6 +58,107 @@ public class GameReferenceGuardTests
             .ToArray();
 
         Assert.Empty(referenced);
+    }
+
+    [Fact]
+    public void Build_fails_for_the_bare_client_assembly()
+    {
+        var result = BuildWithReference(
+            """
+            <ItemGroup>
+              <Reference Include="Vintagestory">
+                <HintPath>/x/Vintagestory.dll</HintPath>
+              </Reference>
+            </ItemGroup>
+            """,
+            vintageStory: null);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("must not reference game assemblies", result.Output, StringComparison.Ordinal);
+        Assert.Contains("Vintagestory", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_fails_for_a_dll_under_the_game_install()
+    {
+        var result = BuildWithReference(
+            """
+            <ItemGroup>
+              <Reference Include="protobuf-net">
+                <HintPath>$(VINTAGE_STORY)/Lib/protobuf-net.dll</HintPath>
+              </Reference>
+            </ItemGroup>
+            """,
+            vintageStory: "/tmp/fake-vs-install/");
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("must not reference game assemblies", result.Output, StringComparison.Ordinal);
+        Assert.Contains("protobuf-net", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_fails_for_a_strong_name_with_a_renamed_path()
+    {
+        var result = BuildWithReference(
+            """
+            <ItemGroup>
+              <Reference Include="VintagestoryAPI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+                <HintPath>/tmp/renamed-api.dll</HintPath>
+              </Reference>
+            </ItemGroup>
+            """,
+            vintageStory: null);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("must not reference game assemblies", result.Output, StringComparison.Ordinal);
+        Assert.Contains("VintagestoryAPI", result.Output, StringComparison.Ordinal);
+    }
+
+    private static (int ExitCode, string Output) BuildWithReference(string itemGroup, string? vintageStory)
+    {
+        var temp = Path.Combine(Path.GetTempPath(), "wayfinding-guard-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temp);
+        try
+        {
+            var source = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding.Pathing", "Wayfinding.Pathing.csproj"));
+            var closing = source.LastIndexOf("</Project>", StringComparison.Ordinal);
+            Assert.True(closing >= 0, "Copied project has no closing Project tag.");
+            File.WriteAllText(Path.Combine(temp, "Wayfinding.Pathing.csproj"), source.Insert(closing, itemGroup + Environment.NewLine));
+
+            var start = new ProcessStartInfo
+            {
+                FileName = "dotnet",
+                WorkingDirectory = temp,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            start.ArgumentList.Add("build");
+            start.ArgumentList.Add(Path.Combine(temp, "Wayfinding.Pathing.csproj"));
+            start.ArgumentList.Add("-nologo");
+            start.ArgumentList.Add("-v:q");
+            if (vintageStory is null)
+            {
+                start.Environment.Remove("VINTAGE_STORY");
+            }
+            else
+            {
+                start.Environment["VINTAGE_STORY"] = vintageStory;
+            }
+
+            using var process = Process.Start(start);
+            Assert.NotNull(process);
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            Assert.True(process.WaitForExit(TimeSpan.FromMinutes(2)), "dotnet build did not exit.");
+            return (process.ExitCode, stdout.Result + stderr.Result);
+        }
+        finally
+        {
+            if (Directory.Exists(temp))
+            {
+                Directory.Delete(temp, recursive: true);
+            }
+        }
     }
 
     private static bool IsGameReference(string text)

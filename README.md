@@ -31,4 +31,4 @@ The Release build writes one mod zip to `Releases/wayfinding_0.1.0.zip` (the mod
 dotnet test
 ```
 
-The pathing tests do not need a game install. `Wayfinding.Pathing` is a game-free library. The build fails if that project references a game assembly (`VintagestoryAPI`, `VSEssentials`, `VSSurvivalMod`, `0Harmony`, and the other game assemblies).
+The pathing tests do not need a game install. `Wayfinding.Pathing` is a game-free library. Building that project fails if it references a game assembly (`Vintagestory`, `VintagestoryAPI`, `VSEssentials`, `VSSurvivalMod`, `0Harmony`, and the other game assemblies), a strong name such as `VintagestoryAPI, Version=...`, or any HintPath under the `VINTAGE_STORY` install.
