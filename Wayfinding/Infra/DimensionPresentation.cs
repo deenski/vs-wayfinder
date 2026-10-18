@@ -21,9 +21,10 @@ public static class DimensionPresentation
 {
     public const string DifferentBadge = "different dimension";
 
-    public static MapDraw For(DimensionRelation relation)
+    public static MapDraw For(DimensionRelation relation, NavTargetKind kind = NavTargetKind.None)
     {
-        if (relation == DimensionRelation.Same)
+        // The tether already hides a player whose dimension does not match, so this gate must not.
+        if (kind == NavTargetKind.Player || relation == DimensionRelation.Same)
         {
             return new MapDraw(true, null);
         }

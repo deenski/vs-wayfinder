@@ -64,12 +64,14 @@ public partial class WayfindingModSystem : ModSystem
     public override void StartClientSide(ICoreClientAPI api)
     {
         capi = api;
-        Log.Verbosity = ClientConfigStore.Load(api, Log).debugVerbosity;
+        ApplyClientConfig(ClientConfigStore.Load(api, Log));
         RunGate();
         if (Gate.IsEnabled(Feature.MapLayer))
         {
             RegisterWayfindingLayer(api);
         }
+
+        RegisterHotkeys(api);
 
         api.Event.LevelFinalize += OnLevelFinalize;
         api.Event.LeaveWorld += OnLeaveWorld;
@@ -129,13 +131,13 @@ public partial class WayfindingModSystem : ModSystem
             capi.Event.LeaveWorld -= OnLeaveWorld;
         }
 
-        _teams?.Dispose();
-        _teams = null;
-        // Arrival (KAN-23) before the tether (KAN-22), while capi is still set.
-        // Both hooks are safe when their Register methods never ran, including
-        // on the server instance.
+        // Arrival (KAN-23) before the tether (KAN-22). The tether reads TeamService
+        // on its tick, so that listener is removed before teams are disposed.
+        // Both partials are safe when their Register methods never ran.
         DisposeDimensionAndArrival();
         DisposeTeammateTether();
+        _teams?.Dispose();
+        _teams = null;
         navigation?.OnLeaveWorld();
         navigation?.Dispose();
         navigation = null;

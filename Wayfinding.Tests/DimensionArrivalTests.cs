@@ -365,6 +365,14 @@ public class DimensionArrivalTests
     }
 
     [Fact]
+    public void Player_target_still_draws_while_unconfirmed()
+    {
+        MapDraw draw = DimensionPresentation.For(DimensionRelation.Unconfirmed, NavTargetKind.Player);
+        Assert.True(draw.Line);
+        Assert.Null(draw.Badge);
+    }
+
+    [Fact]
     public void Debug_sample_stamps_the_player_dimension()
     {
         var commands = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "Commands", "NavCommands.cs"));
@@ -397,7 +405,7 @@ public class DimensionArrivalTests
     {
         var layer = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "Map", "WayfindingMapLayer.cs"));
 
-        Assert.Contains("DimensionPresentation.For(mod.RouteDimension)", layer, StringComparison.Ordinal);
+        Assert.Contains("DimensionPresentation.For(mod.RouteDimension, mod.NavTargets?.Current.Kind ?? NavTargetKind.None)", layer, StringComparison.Ordinal);
         Assert.DoesNotContain("labelText = badge", layer, StringComparison.Ordinal);
         Assert.Contains("mod.ReplanRequested += OnForcedReplan", layer, StringComparison.Ordinal);
         Assert.Contains("mod.ReplanRequested -= OnForcedReplan", layer, StringComparison.Ordinal);

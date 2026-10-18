@@ -157,6 +157,25 @@ public class VersionGateTests
         Assert.False(MemberMatcher.HasMember(
             typeof(SampleMap),
             new MemberRequirement("SampleMap", "DialogType", MemberKind.Field)));
+        Assert.True(MemberMatcher.HasMember(
+            typeof(SampleEvents),
+            new MemberRequirement("SampleEvents", "MouseDown", MemberKind.Event)));
+        Assert.False(MemberMatcher.HasMember(
+            typeof(SampleEvents),
+            new MemberRequirement("SampleEvents", "MouseDown", MemberKind.Method)));
+    }
+
+    [Fact]
+    public void Missing_mouse_down_disables_only_client_input()
+    {
+        var gate = Evaluate(FeatureCatalog.MouseDown.Display);
+
+        Assert.False(gate.IsEnabled(Feature.ClientInput));
+        Assert.True(gate.IsEnabled(Feature.MapLayer));
+        Assert.True(gate.IsEnabled(Feature.MapViewport));
+        Assert.True(gate.IsEnabled(Feature.Waypoints));
+        Assert.True(gate.IsEnabled(Feature.RemoteTracking));
+        Assert.True(gate.IsEnabled(Feature.MinimapEdge));
     }
 
     [Fact]
@@ -169,6 +188,9 @@ public class VersionGateTests
             ["GetAllTrackedPlayerPositions", "PlayerUid", "PosX", "PosZ", "Despawn", "AssociatedPlayer", "mapLayers"],
             Names(Feature.RemoteTracking));
         Assert.Equal(["worldMapDlg", "DialogType", "HUD"], Names(Feature.MinimapEdge));
+        Assert.Equal(
+            ["RegisterHotKey", "SetHotKeyHandler", "GetHotKeyByCode", "MouseDown", "Dialog"],
+            Names(Feature.ClientInput));
 
         var names = FeatureCatalog.All.SelectMany(feature => Names(feature)).ToArray();
         Assert.DoesNotContain("ClampButPreserveAngle", names);
@@ -273,6 +295,11 @@ public class VersionGateTests
 
             return true;
         }
+    }
+
+    private interface SampleEvents
+    {
+        event Action MouseDown;
     }
 
     private sealed class SampleMap

@@ -36,7 +36,8 @@ public sealed class OwnTargetDimensionDetector
         if (target.Kind == NavTargetKind.Player)
         {
             // TODO(KAN-22): teammate dimension comes from ITeammatePositionSource.
-            // Until that source exists, a player target stays Unconfirmed so nothing is drawn.
+            // Until that source exists, a player target stays Unconfirmed. The map still
+            // draws it; the tether hides a different dimension.
             return DimensionRelation.Unconfirmed;
         }
 
