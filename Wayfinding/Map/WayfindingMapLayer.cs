@@ -482,6 +482,7 @@ public sealed class WayfindingMapLayer : MapLayer
             labelFont ??= CairoFont.WhiteDetailText();
             capi.Gui.TextTexture.GenOrUpdateTextTexture(labelText, labelFont, ref labelTexture);
             uploadedMeters = meters;
+            uploadedBadge = null;
             uploadedAtMs = now;
         }
 

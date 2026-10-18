@@ -39,6 +39,7 @@ public partial class WayfindingModSystem
             navigation.Targets,
             new ClientPlayerPositionSource(api),
             () => api.ElapsedMilliseconds,
+            () => Gate.IsEvaluated,
             new ClientWaypointPositionSource(api, Gate),
             new ClientDimensionArrivalEvents(api),
             new ClientArrivalNotice(api),

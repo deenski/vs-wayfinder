@@ -309,6 +309,20 @@ public class DimensionArrivalTests
     }
 
     [Fact]
+    public void Unevaluated_gate_does_not_arrive()
+    {
+        var harness = new Harness();
+        harness.GateOpen = false;
+        harness.Targets.SetWaypoint(HomeId, "Home");
+        harness.Waypoints.Points[HomeId] = new WaypointPosition(0, 10, 0);
+        harness.Positions.Current = PlayerFix.At(0, 10, 0, 0);
+        harness.Session.Tick();
+
+        Assert.Equal(HomeId, harness.Targets.Current.WaypointId);
+        Assert.Equal(DimensionRelation.Unconfirmed, harness.Session.Current);
+    }
+
+    [Fact]
     public void Dispose_is_idempotent_and_unsubscribes_once()
     {
         var harness = new Harness();
@@ -460,6 +474,7 @@ public class DimensionArrivalTests
                 Targets,
                 Positions,
                 () => Clock.ElapsedMilliseconds,
+                () => GateOpen,
                 Waypoints,
                 Events,
                 Notice,
@@ -475,6 +490,8 @@ public class DimensionArrivalTests
         public ScriptedPositions Positions { get; } = new();
 
         public ManualClock Clock { get; } = new();
+
+        public bool GateOpen { get; set; } = true;
 
         public ScriptedWaypoints Waypoints { get; } = new();
 

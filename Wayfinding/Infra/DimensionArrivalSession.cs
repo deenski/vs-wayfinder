@@ -14,6 +14,7 @@ public sealed class DimensionArrivalSession : IDisposable
     private readonly NavTargets targets;
     private readonly IPlayerPositionSource positions;
     private readonly Func<long> elapsedMilliseconds;
+    private readonly Func<bool> gateEvaluated;
     private readonly OwnTargetDimensionDetector dimensions = new();
     private readonly TeleportDetector teleports = new();
     private readonly ArrivalDetector arrival = new();
@@ -28,6 +29,7 @@ public sealed class DimensionArrivalSession : IDisposable
         NavTargets targets,
         IPlayerPositionSource positions,
         Func<long> elapsedMilliseconds,
+        Func<bool> gateEvaluated,
         IWaypointPositionSource waypoints,
         IDimensionArrivalEvents events,
         IArrivalNotice notice,
@@ -37,6 +39,7 @@ public sealed class DimensionArrivalSession : IDisposable
         this.targets = targets ?? throw new ArgumentNullException(nameof(targets));
         this.positions = positions ?? throw new ArgumentNullException(nameof(positions));
         this.elapsedMilliseconds = elapsedMilliseconds ?? throw new ArgumentNullException(nameof(elapsedMilliseconds));
+        this.gateEvaluated = gateEvaluated ?? throw new ArgumentNullException(nameof(gateEvaluated));
         this.waypoints = waypoints ?? throw new ArgumentNullException(nameof(waypoints));
         this.events = events ?? throw new ArgumentNullException(nameof(events));
         this.notice = notice ?? throw new ArgumentNullException(nameof(notice));
@@ -79,7 +82,7 @@ public sealed class DimensionArrivalSession : IDisposable
 
     public void Tick()
     {
-        if (!targets.MapAllowed)
+        if (!gateEvaluated() || !targets.MapAllowed)
         {
             Current = DimensionRelation.Unconfirmed;
             teleports.ResetBaseline();
