@@ -867,6 +867,11 @@ public sealed class WayfindingMapLayer : MapLayer
             return true;
         }
 
+        if (current.Kind == NavTargetKind.Player)
+        {
+            return TryPlayerTether(out x, out y, out z);
+        }
+
         if (current.Kind != NavTargetKind.Waypoint || !mod.IsEnabled(Feature.Waypoints) || waypointDrawDisabled)
         {
             return false;
@@ -882,6 +887,28 @@ public sealed class WayfindingMapLayer : MapLayer
             mod.Log.LogOnce("map-waypoint-draw", LogLevel.Error, "waypoint target drawing disabled after " + ex.GetType().Name + ": " + ex.Message);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Player targets use the tether sample. That sample already applied
+    /// <see cref="ITeammatePositionSource"/> (entity, then remote tracking),
+    /// the greyed last-known and 30 s stale rules, hysteresis, and the hide
+    /// conditions. Read on the render thread, which is the client main thread.
+    /// </summary>
+    bool TryPlayerTether(out double x, out double y, out double z)
+    {
+        x = 0;
+        y = 0;
+        z = 0;
+        if (mod.TeammateSample is not TeammateTetherSample sample || !sample.Visible || !sample.HasPosition)
+        {
+            return false;
+        }
+
+        x = sample.Position.X;
+        y = sample.Position.Y ?? 0;
+        z = sample.Position.Z;
+        return true;
     }
 
     bool TryWaypointPosition(Guid id, out double x, out double y, out double z)

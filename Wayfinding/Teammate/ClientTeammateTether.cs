@@ -84,18 +84,21 @@ internal sealed class ClientTeammatePositionSource : ITeammatePositionSource
 }
 
 /// <summary>
-/// Hide inputs that can be read without KAN-21 or KAN-19.
-/// Share stays unknown until KAN-21 is wired, so the tether stays hidden.
-/// Dimension is confirmed only when both entities are loaded and their
-/// <c>EntityPos.Dimension</c> values match. A tracking packet has no dimension.
+/// Hide inputs read from the client. Share-off is
+/// <see cref="ITeammateVisibility.IsVisibleTeammate"/>, which TeamService
+/// returns false for. Dimension is confirmed only when both entities are
+/// loaded and their <c>EntityPos.Dimension</c> values match. A tracking
+/// packet has no dimension.
 /// </summary>
 internal sealed class ClientTeammateTetherInputs : ITeammateTetherInputs
 {
     private readonly ICoreClientAPI api;
+    private readonly ITeammateVisibility teammates;
 
-    public ClientTeammateTetherInputs(ICoreClientAPI api)
+    public ClientTeammateTetherInputs(ICoreClientAPI api, ITeammateVisibility teammates)
     {
         this.api = api ?? throw new ArgumentNullException(nameof(api));
+        this.teammates = teammates ?? throw new ArgumentNullException(nameof(teammates));
     }
 
     public bool? MapHideOtherPlayers
@@ -143,10 +146,16 @@ internal sealed class ClientTeammateTetherInputs : ITeammateTetherInputs
 
     public bool? IsSharing(string? playerNameOrUid)
     {
-        // KAN-21 owns share state. Its public service does not expose a separate
-        // share query yet, and it is not on main. Unknown stays hidden.
-        _ = playerNameOrUid;
-        return null;
+        // TeamService folds share-off into IsVisibleTeammate and fails closed
+        // on an unknown name. A throw is treated as unknown.
+        try
+        {
+            return teammates.IsVisibleTeammate(playerNameOrUid);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     public bool TryGetLocalPosition(out TeammatePoint position)

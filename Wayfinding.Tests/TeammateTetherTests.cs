@@ -280,6 +280,25 @@ public class TeammateTetherTests
     }
 
     [Fact]
+    public void Leaving_the_visible_set_hides_within_five_seconds()
+    {
+        // TeamService reports both "not a teammate" and share-off as not visible.
+        // The tick that observes it hides. Five seconds is the deadline.
+        var immediate = new TetherHarness();
+        Assert.True(immediate.Tick().Visible);
+        immediate.Teammates.Only("SomeoneElse");
+        immediate.Clock.Milliseconds += 1;
+        AssertHidden(immediate.Tick());
+
+        var deadline = new TetherHarness();
+        Assert.True(deadline.Tick().Visible);
+        deadline.Teammates.Only("SomeoneElse");
+        deadline.Positions.Entity = new TeammatePoint(20, 0, 64);
+        deadline.Clock.Milliseconds += TeammateTether.ShareOffWithinMilliseconds;
+        AssertHidden(deadline.Tick());
+    }
+
+    [Fact]
     public void A_different_player_does_not_keep_the_previous_fix()
     {
         var harness = new TetherHarness();
@@ -319,7 +338,11 @@ public class TeammateTetherTests
         Assert.Contains("if (teammateTetherListening)", hook, StringComparison.Ordinal);
         Assert.Contains("TeammateSample", hook, StringComparison.Ordinal);
         Assert.Contains("NoTeammateVisibility.Instance", hook, StringComparison.Ordinal);
+        Assert.Contains("teammates.IsVisibleTeammate", adapter, StringComparison.Ordinal);
         Assert.Contains("GetPlayerPositionInformation", adapter, StringComparison.Ordinal);
+        var layer = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "Map", "WayfindingMapLayer.cs"));
+        Assert.Contains("NavTargetKind.Player", layer, StringComparison.Ordinal);
+        Assert.Contains("mod.TeammateSample", layer, StringComparison.Ordinal);
         Assert.Contains("mapHideOtherPlayers", adapter, StringComparison.Ordinal);
         Assert.Contains("EnumGameMode.Spectator", adapter, StringComparison.Ordinal);
         Assert.Contains("return null;", adapter, StringComparison.Ordinal);
