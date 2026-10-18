@@ -1,0 +1,128 @@
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace Wayfinding.Infra;
+
+public sealed class VersionGate
+{
+    private readonly Dictionary<Feature, FeatureState> states = new();
+    private readonly HashSet<Feature> notified = new();
+
+    public VersionGate()
+    {
+        foreach (var feature in FeatureCatalog.All)
+        {
+            states[feature] = new FeatureState(false, "");
+        }
+    }
+
+    public bool IsEvaluated { get; private set; }
+
+    public bool IsEnabled(Feature feature)
+    {
+        return IsEvaluated && states[feature].Enabled;
+    }
+
+    public FeatureState State(Feature feature)
+    {
+        return states[feature];
+    }
+
+    public void Evaluate(IMemberProbe probe, IWayfindingLog log)
+    {
+        ArgumentNullException.ThrowIfNull(probe);
+        ArgumentNullException.ThrowIfNull(log);
+        if (IsEvaluated)
+        {
+            return;
+        }
+
+        foreach (var feature in FeatureCatalog.All)
+        {
+            var missing = new List<string>();
+            foreach (var requirement in FeatureCatalog.Requirements(feature))
+            {
+                bool present;
+                try
+                {
+                    present = probe.HasMember(requirement);
+                }
+                catch (Exception ex)
+                {
+                    present = false;
+                    log.LogOnce(
+                        "gate-probe:" + requirement.Display,
+                        LogLevel.Error,
+                        "member probe failed for " + requirement.Display + ": " + ex.Message);
+                }
+
+                if (!present)
+                {
+                    missing.Add(requirement.Display);
+                }
+            }
+
+            if (missing.Count == 0)
+            {
+                states[feature] = new FeatureState(true, "");
+                continue;
+            }
+
+            var missingText = string.Join(", ", missing);
+            states[feature] = new FeatureState(false, missingText);
+            log.LogOnce("gate:" + feature, LogLevel.Warning, DisabledMessage(feature, missingText));
+        }
+
+        IsEvaluated = true;
+        log.Log(LogLevel.Notice, Summary());
+    }
+
+    public void Notify(IGateNotice notice)
+    {
+        ArgumentNullException.ThrowIfNull(notice);
+        if (!IsEvaluated)
+        {
+            return;
+        }
+
+        foreach (var feature in FeatureCatalog.All)
+        {
+            var state = states[feature];
+            if (state.Enabled || !notified.Add(feature))
+            {
+                continue;
+            }
+
+            notice.ShowDisabled(feature, DisabledMessage(feature, state.Missing));
+        }
+    }
+
+    public string Summary()
+    {
+        if (!IsEvaluated)
+        {
+            return "version gate: not evaluated";
+        }
+
+        var builder = new StringBuilder("version gate:");
+        foreach (var feature in FeatureCatalog.All)
+        {
+            builder.Append(' ');
+            builder.Append(feature);
+            builder.Append(states[feature].Enabled ? " enabled," : " disabled,");
+        }
+
+        if (builder[^1] == ',')
+        {
+            builder.Length--;
+        }
+
+        return builder.ToString();
+    }
+
+    public static string DisabledMessage(Feature feature, string missing)
+    {
+        return feature + " disabled; missing " + missing;
+    }
+}

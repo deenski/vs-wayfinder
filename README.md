@@ -32,3 +32,5 @@ dotnet test
 ```
 
 The pathing tests do not need a game install. `Wayfinding.Pathing` is a game-free library. Building that project fails if it references a game assembly (`Vintagestory`, `VintagestoryAPI`, `VSEssentials`, `VSSurvivalMod`, `0Harmony`, and the other game assemblies), a strong name such as `VintagestoryAPI, Version=...`, or any HintPath under the `VINTAGE_STORY` install.
+
+`Wayfinding.Tests` links the game-free sources in `Wayfinding/Infra` and does not reference the mod project or the game. `dotnet test` from the repo root does not need `VINTAGE_STORY`.
