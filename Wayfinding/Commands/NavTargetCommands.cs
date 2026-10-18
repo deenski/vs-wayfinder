@@ -10,9 +10,9 @@ namespace Wayfinding;
 
 public static class NavTargetCommands
 {
-    public static ClientNavSession Register(ICoreClientAPI capi, WayfindingModSystem mod)
+    public static ClientNavSession Register(ICoreClientAPI capi, WayfindingModSystem mod, ITeammateVisibility? teammates = null)
     {
-        var session = new ClientNavSession(capi, mod);
+        var session = new ClientNavSession(capi, mod, teammates);
         session.Start();
 
         // Same root as stats and debug. GetOrCreate does not replace that root.
@@ -27,13 +27,13 @@ public static class NavTargetCommands
             .EndSubCommand()
             .BeginSubCommand("player")
                 .WithDescription("Navigate to a visible teammate by name.")
-                .WithAdditionalInformation("The name is accepted only when teammate visibility allows it. Until team sharing is connected, this reports that teammate sharing isn't available yet.")
+                .WithAdditionalInformation("The name is accepted only when that player is a visible teammate.")
                 .RequiresPrivilege(Privilege.chat)
                 .WithArgs(parsers.OptionalAll("name"))
                 .HandleWith(args => session.Player(ArgText(args)))
             .EndSubCommand()
             .BeginSubCommand("coord")
-                .WithDescription("Navigate to coordinates. X and Z are spawn-relative, the way the map shows them. Y is absolute height.")
+                .WithDescription("Navigate to coordinates. X and Z are spawn-relative, the way the map shows them. Y is absolute height, from 0 up to the world height minus 1.")
                 .WithAdditionalInformation("X and Z are spawn-relative: absolute equals the displayed number plus the spawn block, matching the map and /waypoint list. Y, when given, is absolute height and is not offset by spawn.")
                 .WithExamples(".nav coord 10 -4", ".nav coord 10 70 -4")
                 .RequiresPrivilege(Privilege.chat)
@@ -66,10 +66,9 @@ public static class NavTargetCommands
 }
 
 /// <summary>
-/// Client adapter for <see cref="NavTargets"/>. The target model denies every
-/// player until a teammate-visibility implementation is passed in. After KAN-21
-/// merges, that is one constructor argument: the team service, which already
-/// has <c>IsVisibleTeammate</c>.
+/// Client adapter for <see cref="NavTargets"/>. Player targets go through
+/// <see cref="ITeammateVisibility"/>. TeamService does the server-side name-to-uid lookup
+/// through AllOnlinePlayers and fails closed: an unknown name is not visible.
 /// </summary>
 public sealed class ClientNavSession
 {
@@ -77,12 +76,11 @@ public sealed class ClientNavSession
     private readonly WayfindingModSystem mod;
     private long tickListener = -1;
 
-    public ClientNavSession(ICoreClientAPI capi, WayfindingModSystem mod)
+    public ClientNavSession(ICoreClientAPI capi, WayfindingModSystem mod, ITeammateVisibility? teammates = null)
     {
         this.capi = capi ?? throw new ArgumentNullException(nameof(capi));
         this.mod = mod ?? throw new ArgumentNullException(nameof(mod));
-        // NoTeammateVisibility until KAN-21. Then: new NavTargets(store, teamService).
-        Targets = new NavTargets(new ClientNavTargetStore(capi, mod.Log));
+        Targets = new NavTargets(new ClientNavTargetStore(capi, mod.Log), teammates);
     }
 
     public NavTargets Targets { get; }
@@ -159,7 +157,8 @@ public sealed class ClientNavSession
             return TextCommandResult.Error(error);
         }
 
-        return Reply(Targets.Coord(argument, spawn));
+        // MapSizeY is the world height in blocks. The range check lives in the parser.
+        return Reply(Targets.Coord(argument, spawn, MapHeight()));
     }
 
     public TextCommandResult Off()
@@ -261,6 +260,12 @@ public sealed class ClientNavSession
         }
 
         Targets.SetMapAllowed(allowed);
+    }
+
+    private int MapHeight()
+    {
+        var height = capi.World?.BlockAccessor?.MapSizeY ?? 0;
+        return height > 0 ? height : 0;
     }
 
     private bool TrySpawn(out SpawnOrigin spawn, out string error)

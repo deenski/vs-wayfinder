@@ -4,10 +4,10 @@ using System.Collections.Generic;
 namespace Wayfinding.Infra;
 
 /// <summary>
-/// Members the mod reads from the game. Full names were checked against the
-/// 1.22.7 VSEssentials assembly (not VintagestoryAPI): namespace
-/// Vintagestory.GameContent. RegisterMapLayer is an open generic method.
-/// ownWaypoints is a public field; the matcher still accepts non-public.
+/// Members the mod reads from the game. Names were checked against the 1.22.7
+/// assemblies. <see cref="MemberKind.Property"/> is for members such as
+/// <c>GuiDialogWorldMap.DialogType</c>. The map layer no longer calls
+/// <c>ClampButPreserveAngle</c> or <c>GetPlayerPositionInformation</c>.
 /// </summary>
 public static class FeatureCatalog
 {
@@ -26,20 +26,65 @@ public static class FeatureCatalog
         "CurrentBlockViewBounds",
         MemberKind.Field);
 
-    public static readonly MemberRequirement ClampButPreserveAngle = new(
+    public static readonly MemberRequirement IsDragingMap = new(
         "Vintagestory.GameContent.GuiElementMap",
-        "ClampButPreserveAngle",
-        MemberKind.Method);
+        "IsDragingMap",
+        MemberKind.Field);
 
     public static readonly MemberRequirement OwnWaypoints = new(
         "Vintagestory.GameContent.WaypointMapLayer",
         "ownWaypoints",
         MemberKind.Field);
 
-    public static readonly MemberRequirement GetPlayerPositionInformation = new(
+    public static readonly MemberRequirement MapElementLayers = new(
+        "Vintagestory.GameContent.GuiElementMap",
+        "mapLayers",
+        MemberKind.Field);
+
+    public static readonly MemberRequirement GetAllTrackedPlayerPositions = new(
         "Vintagestory.GameContent.SystemRemotePlayerTracking",
-        "GetPlayerPositionInformation",
+        "GetAllTrackedPlayerPositions",
         MemberKind.Method);
+
+    public static readonly MemberRequirement PacketPlayerUid = new(
+        "Vintagestory.GameContent.PacketPlayerPosition",
+        "PlayerUid",
+        MemberKind.Field);
+
+    public static readonly MemberRequirement PacketPosX = new(
+        "Vintagestory.GameContent.PacketPlayerPosition",
+        "PosX",
+        MemberKind.Field);
+
+    public static readonly MemberRequirement PacketPosZ = new(
+        "Vintagestory.GameContent.PacketPlayerPosition",
+        "PosZ",
+        MemberKind.Field);
+
+    public static readonly MemberRequirement PacketDespawn = new(
+        "Vintagestory.GameContent.PacketPlayerPosition",
+        "Despawn",
+        MemberKind.Field);
+
+    public static readonly MemberRequirement PacketAssociatedPlayer = new(
+        "Vintagestory.GameContent.PacketPlayerPosition",
+        "AssociatedPlayer",
+        MemberKind.Field);
+
+    public static readonly MemberRequirement WorldMapDialog = new(
+        "Vintagestory.GameContent.WorldMapManager",
+        "worldMapDlg",
+        MemberKind.Field);
+
+    public static readonly MemberRequirement DialogType = new(
+        "Vintagestory.GameContent.GuiDialogWorldMap",
+        "DialogType",
+        MemberKind.Property);
+
+    public static readonly MemberRequirement DialogTypeHud = new(
+        "Vintagestory.API.Client.EnumDialogType",
+        "HUD",
+        MemberKind.Field);
 
     private static readonly IReadOnlyList<MemberRequirement> MapLayerMembers =
     [
@@ -50,17 +95,31 @@ public static class FeatureCatalog
     private static readonly IReadOnlyList<MemberRequirement> MapViewportMembers =
     [
         CurrentBlockViewBounds,
-        ClampButPreserveAngle,
+        IsDragingMap,
     ];
 
     private static readonly IReadOnlyList<MemberRequirement> WaypointMembers =
     [
         OwnWaypoints,
+        MapElementLayers,
     ];
 
     private static readonly IReadOnlyList<MemberRequirement> RemoteTrackingMembers =
     [
-        GetPlayerPositionInformation,
+        GetAllTrackedPlayerPositions,
+        PacketPlayerUid,
+        PacketPosX,
+        PacketPosZ,
+        PacketDespawn,
+        PacketAssociatedPlayer,
+        MapElementLayers,
+    ];
+
+    private static readonly IReadOnlyList<MemberRequirement> MinimapEdgeMembers =
+    [
+        WorldMapDialog,
+        DialogType,
+        DialogTypeHud,
     ];
 
     public static readonly IReadOnlyList<Feature> All =
@@ -69,6 +128,7 @@ public static class FeatureCatalog
         Feature.MapViewport,
         Feature.Waypoints,
         Feature.RemoteTracking,
+        Feature.MinimapEdge,
     ];
 
     public static IReadOnlyList<MemberRequirement> Requirements(Feature feature)
@@ -79,6 +139,7 @@ public static class FeatureCatalog
             Feature.MapViewport => MapViewportMembers,
             Feature.Waypoints => WaypointMembers,
             Feature.RemoteTracking => RemoteTrackingMembers,
+            Feature.MinimapEdge => MinimapEdgeMembers,
             _ => throw new ArgumentOutOfRangeException(nameof(feature), feature, "Unknown feature."),
         };
     }

@@ -29,6 +29,16 @@ public static class MemberMatcher
                 continue;
             }
 
+            if (requirement.Kind == MemberKind.Property)
+            {
+                if (current.GetProperty(requirement.MemberName, Flags) is not null)
+                {
+                    return true;
+                }
+
+                continue;
+            }
+
             foreach (var method in current.GetMethods(Flags))
             {
                 if (!string.Equals(method.Name, requirement.MemberName, StringComparison.Ordinal))

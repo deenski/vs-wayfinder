@@ -1,33 +1,5 @@
 namespace Wayfinding.Pathing.Map;
 
-/// <summary>Horizontal distance helpers for map labels. Y is ignored.</summary>
-public static class MapMath
-{
-    /// <summary>Euclidean distance in the X/Z plane.</summary>
-    /// <param name="x1">First X.</param>
-    /// <param name="z1">First Z.</param>
-    /// <param name="x2">Second X.</param>
-    /// <param name="z2">Second Z.</param>
-    public static double HorizontalDistance(double x1, double z1, double x2, double z2)
-    {
-        double dx = x2 - x1;
-        double dz = z2 - z1;
-        return Math.Sqrt(dx * dx + dz * dz);
-    }
-
-    /// <summary>Rounds a distance to whole meters. Non-positive and NaN distances are 0.</summary>
-    /// <param name="distance">Distance in blocks, which are one meter.</param>
-    public static int RoundedMeters(double distance)
-    {
-        if (double.IsNaN(distance) || distance <= 0)
-        {
-            return 0;
-        }
-
-        return (int)Math.Round(distance, MidpointRounding.AwayFromZero);
-    }
-}
-
 /// <summary>Mouse button for a map click, reduced to the buttons the map cares about.</summary>
 public enum MapMouseButton
 {
