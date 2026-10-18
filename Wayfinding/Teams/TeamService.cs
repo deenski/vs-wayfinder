@@ -25,6 +25,7 @@ public sealed class TeamService : ITeamService, IDisposable
     private readonly ICoreClientAPI _capi;
     private readonly ILogger _logger;
     private readonly TeamModel _model = new();
+    private readonly LogOnce _unverifiedLog = new();
     private readonly Dictionary<int, PendingAnnouncement> _pending = new();
 
     private ShareStateStore _store = new();
@@ -177,6 +178,7 @@ public sealed class TeamService : ITeamService, IDisposable
     {
         _ready = false;
         _pending.Clear();
+        _unverifiedLog.Clear();
         _membershipKey = "";
         _visibleKey = "";
         _worldId = "";
@@ -223,15 +225,16 @@ public sealed class TeamService : ITeamService, IDisposable
             return;
         }
 
-        string? senderUid = null;
-        if (parsed.SenderEntityId is long entityId)
-        {
-            senderUid = FindUidByEntityId(entityId);
-        }
-
-        if (_model.ApplyNotice(groupId, parsed.Notice, senderUid))
+        var disposition = _model.TryApplyChat(groupId, message, data, ReadOnlinePlayers());
+        if (disposition == ShareChatDisposition.Applied)
         {
             NoteVisibility();
+            return;
+        }
+
+        if (disposition == ShareChatDisposition.Unverified)
+        {
+            NoteUnverified(parsed);
         }
     }
 
@@ -347,25 +350,40 @@ public sealed class TeamService : ITeamService, IDisposable
         return list;
     }
 
-    private string? FindUidByEntityId(long entityId)
+    private List<OnlinePlayer> ReadOnlinePlayers()
     {
+        var list = new List<OnlinePlayer>();
         var players = _capi.World?.AllOnlinePlayers;
         if (players is null)
         {
-            return null;
+            return list;
         }
 
         foreach (var player in players)
         {
-            if (player?.Entity is null || player.Entity.EntityId != entityId)
+            // Entity id exists only on the loaded entity. An online player
+            // whose entity is not loaded cannot be matched to from: <id>,
+            // so the announcement fails closed.
+            if (player is null || player.Entity is null || string.IsNullOrEmpty(player.PlayerUID))
             {
                 continue;
             }
 
-            return string.IsNullOrEmpty(player.PlayerUID) ? null : player.PlayerUID;
+            list.Add(new OnlinePlayer(player.PlayerUID, player.Entity.EntityId, true));
         }
 
-        return null;
+        return list;
+    }
+
+    private void NoteUnverified(ParsedShareChat parsed)
+    {
+        var key = parsed.SenderEntityId is long entityId
+            ? "entity:" + entityId.ToString(CultureInfo.InvariantCulture)
+            : "uid:" + parsed.Notice.PlayerUid;
+        _unverifiedLog.Debug(
+            _logger,
+            key,
+            "Wayfinding ignored an unverified share announcement (" + key + ").");
     }
 
     private string CurrentWorldId()

@@ -3,8 +3,10 @@ namespace Wayfinding.Pathing.Teams;
 /// <summary>
 /// Membership, announcement evidence, and the visibility filter.
 /// A remote player is visible only when the local player is in a team group,
-/// an announcement from that player was seen in that group's channel, and
-/// the latest announcement has sharing on. Unknown players are hidden.
+/// a verified announcement from that player was seen in that group's channel,
+/// and the latest verified announcement has sharing on. Unknown players are
+/// hidden. A payload with no verified sender is ignored and does not change
+/// evidence or share state.
 /// </summary>
 public sealed class TeamModel : ITeamService
 {
@@ -104,40 +106,106 @@ public sealed class TeamModel : ITeamService
         return TeamRestrictResult.Restricted;
     }
 
-    public bool TryApplyChat(int groupId, string? message, string? data, string? senderUid)
+    /// <summary>
+    /// Apply one chat line. Fail closed: the <c>from:</c> entity id must match
+    /// an online player whose entity is loaded, and that player's uid must
+    /// match the payload. Share-on and share-off use the same rule. Anything
+    /// else leaves evidence and share flags untouched.
+    /// </summary>
+    public ShareChatDisposition TryApplyChat(
+        int groupId,
+        string? message,
+        string? data,
+        IReadOnlyList<OnlinePlayer>? onlinePlayers)
     {
         if (!ShareAnnouncement.TryParseIncoming(message, data, out var parsed))
         {
-            return false;
+            return ShareChatDisposition.Ignored;
         }
 
-        return ApplyNotice(groupId, parsed.Notice, senderUid);
-    }
-
-    public bool ApplyNotice(int groupId, ShareNotice notice, string? senderUid)
-    {
-        if (string.IsNullOrEmpty(notice.PlayerUid))
+        if (parsed.SenderEntityId is not long entityId
+            || !TryResolveLoadedSender(onlinePlayers, entityId, out var sender)
+            || string.IsNullOrEmpty(sender.Uid)
+            || !string.Equals(sender.Uid, parsed.Notice.PlayerUid, StringComparison.Ordinal))
         {
-            return false;
-        }
-
-        if (!string.IsNullOrEmpty(senderUid)
-            && !string.Equals(senderUid, notice.PlayerUid, StringComparison.Ordinal))
-        {
-            return false;
+            return ShareChatDisposition.Unverified;
         }
 
         // Every group the local player belongs to, not only the .nav team
         // filter. An opt-out is posted to each of those channels and must
-        // clear visibility even while the filter is narrower.
+        // clear visibility even while the filter is narrower. A line on a
+        // channel this client is not in does not count.
         if (!_groups.ContainsKey(groupId))
+        {
+            return ShareChatDisposition.NotInGroup;
+        }
+
+        _evidence.Add((groupId, parsed.Notice.PlayerUid));
+        _sharing[parsed.Notice.PlayerUid] = parsed.Notice.Sharing;
+        return ShareChatDisposition.Applied;
+    }
+
+    public IReadOnlyList<ShareRecord> RecordedShares()
+    {
+        var rows = new List<ShareRecord>(_evidence.Count + _sharing.Count);
+        var evidenced = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in _evidence)
+        {
+            evidenced.Add(entry.Uid);
+            _sharing.TryGetValue(entry.Uid, out var sharing);
+            rows.Add(new ShareRecord(entry.GroupId, entry.Uid, sharing));
+        }
+
+        foreach (var pair in _sharing)
+        {
+            if (!evidenced.Contains(pair.Key))
+            {
+                rows.Add(new ShareRecord(-1, pair.Key, pair.Value));
+            }
+        }
+
+        rows.Sort(static (left, right) =>
+        {
+            var byGroup = left.GroupId.CompareTo(right.GroupId);
+            if (byGroup != 0)
+            {
+                return byGroup;
+            }
+
+            var byUid = string.CompareOrdinal(left.PlayerUid, right.PlayerUid);
+            if (byUid != 0)
+            {
+                return byUid;
+            }
+
+            return left.Sharing.CompareTo(right.Sharing);
+        });
+        return rows;
+    }
+
+    private static bool TryResolveLoadedSender(
+        IReadOnlyList<OnlinePlayer>? onlinePlayers,
+        long entityId,
+        out OnlinePlayer sender)
+    {
+        sender = default;
+        if (onlinePlayers is null)
         {
             return false;
         }
 
-        _evidence.Add((groupId, notice.PlayerUid));
-        _sharing[notice.PlayerUid] = notice.Sharing;
-        return true;
+        foreach (var player in onlinePlayers)
+        {
+            if (player.EntityId != entityId || !player.EntityLoaded)
+            {
+                continue;
+            }
+
+            sender = player;
+            return true;
+        }
+
+        return false;
     }
 
     public bool IsVisibleTeammate(string? uid)
