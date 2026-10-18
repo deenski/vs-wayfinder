@@ -33,9 +33,17 @@ public sealed class VersionGate
 
     public FeatureState State(Feature feature)
     {
-        return states[feature];
+        if (!Volatile.Read(ref evaluated) || !states.TryGetValue(feature, out var state))
+        {
+            return new FeatureState(false, "");
+        }
+
+        return state;
     }
 
+    /// <summary>
+    /// Main-thread only. The evaluated check and the write are not safe for concurrent callers.
+    /// </summary>
     public void Evaluate(IMemberProbe probe, IWayfindingLog log)
     {
         ArgumentNullException.ThrowIfNull(probe);
@@ -86,6 +94,9 @@ public sealed class VersionGate
         log.Log(LogLevel.Notice, Summary());
     }
 
+    /// <summary>
+    /// Main-thread only. The per-feature notice set is not safe for concurrent callers.
+    /// </summary>
     public void Notify(IGateNotice notice)
     {
         ArgumentNullException.ThrowIfNull(notice);

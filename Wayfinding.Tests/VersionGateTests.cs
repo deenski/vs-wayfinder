@@ -75,6 +75,41 @@ public class VersionGateTests
 
         Assert.False(gate.IsEvaluated);
         Assert.All(FeatureCatalog.All, feature => Assert.False(gate.IsEnabled(feature)));
+        Assert.False(gate.State(Feature.MapLayer).Enabled);
+        Assert.False(gate.State((Feature)42).Enabled);
+    }
+
+    [Fact]
+    public void Evaluation_stays_unpublished_until_every_feature_is_filled()
+    {
+        var gate = new VersionGate();
+        var seen = new List<(bool Evaluated, bool Enabled)>();
+        var probe = new ObservingProbe(gate, seen);
+
+        gate.Evaluate(probe, new WayfindingLog(new ListSink()));
+
+        Assert.NotEmpty(seen);
+        Assert.All(seen, row =>
+        {
+            Assert.False(row.Evaluated);
+            Assert.False(row.Enabled);
+        });
+    }
+
+    [Fact]
+    public void Evaluate_probes_each_requirement_once_and_logs_one_summary()
+    {
+        var sink = new ListSink();
+        var log = new WayfindingLog(sink);
+        var probe = new CountingProbe();
+        var gate = new VersionGate();
+        var expected = FeatureCatalog.All.Sum(feature => FeatureCatalog.Requirements(feature).Count);
+
+        gate.Evaluate(probe, log);
+        gate.Evaluate(probe, log);
+
+        Assert.Equal(expected, probe.Calls);
+        Assert.Equal(1, sink.Lines.Count(line => line.Line.Contains("version gate:", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -122,6 +157,39 @@ public class VersionGateTests
         var gate = new VersionGate();
         gate.Evaluate(new FakeProbe(missing), new WayfindingLog(new ListSink()));
         return gate;
+    }
+
+    private sealed class ObservingProbe : IMemberProbe
+    {
+        private readonly VersionGate gate;
+        private readonly List<(bool Evaluated, bool Enabled)> seen;
+
+        public ObservingProbe(VersionGate gate, List<(bool Evaluated, bool Enabled)> seen)
+        {
+            this.gate = gate;
+            this.seen = seen;
+        }
+
+        public bool HasMember(MemberRequirement requirement)
+        {
+            foreach (var feature in FeatureCatalog.All)
+            {
+                seen.Add((gate.IsEvaluated, gate.IsEnabled(feature)));
+            }
+
+            return true;
+        }
+    }
+
+    private sealed class CountingProbe : IMemberProbe
+    {
+        public int Calls { get; private set; }
+
+        public bool HasMember(MemberRequirement requirement)
+        {
+            Calls++;
+            return true;
+        }
     }
 
     private sealed class SelectiveThrowProbe : IMemberProbe
