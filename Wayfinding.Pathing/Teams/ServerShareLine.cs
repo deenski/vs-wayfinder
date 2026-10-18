@@ -26,7 +26,8 @@ public readonly record struct ShareLineResolution(ShareLineStatus Status, ShareN
 /// inside a font color). That prefix cannot be forged by the player. The payload
 /// is read only from the text after the prefix, and the name is mapped through
 /// the online player list. An unknown name, a missing prefix, or a uid that
-/// does not match is unverified for share-on and share-off alike.
+/// does not match is unverified. Callers drop an unverified share-on.
+/// An unverified share-off still hides that uid.
 /// </summary>
 public static class ServerShareLine
 {

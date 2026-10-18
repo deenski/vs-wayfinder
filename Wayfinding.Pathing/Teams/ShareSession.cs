@@ -124,8 +124,9 @@ public sealed class ShareSession
 
         if (resolution.Status != ShareLineStatus.Verified)
         {
+            var unverified = Model.TryApplyChat(groupId, message, onlinePlayers);
             return new ShareReceipt(
-                ShareChatDisposition.Unverified,
+                unverified,
                 false,
                 resolution.SenderName,
                 resolution.Notice.PlayerUid);

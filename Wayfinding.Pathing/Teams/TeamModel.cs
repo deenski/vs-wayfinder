@@ -6,8 +6,8 @@ namespace Wayfinding.Pathing.Teams;
 /// a verified announcement from that player was seen in that group's channel,
 /// and the latest verified announcement has sharing on. Unknown players are
 /// hidden. The sender is the name in the server chat prefix, mapped through
-/// the online player list. A missing prefix, an unknown name, or a uid that
-/// does not match is unverified and does not change evidence or share state.
+/// the online player list. An unverified share-on is dropped. An unverified
+/// share-off still hides that uid, and does not add teammate evidence.
 /// </summary>
 public sealed class TeamModel : ITeamService
 {
@@ -119,10 +119,10 @@ public sealed class TeamModel : ITeamService
     }
 
     /// <summary>
-    /// Apply one chat line. Fail closed: the server name prefix must map to one
-    /// online player, and that player's uid must match the payload. The payload
-    /// is read only from the text after the prefix. Share-on and share-off use
-    /// the same rule. Anything else leaves evidence and share flags untouched.
+    /// Apply one chat line. The server name prefix must map to one online
+    /// player, and that player's uid must match the payload. The payload is
+    /// read only from the text after the prefix. An unverified share-on is
+    /// dropped. An unverified share-off hides that uid without adding evidence.
     /// </summary>
     internal ShareChatDisposition TryApplyChat(
         int groupId,
@@ -137,6 +137,11 @@ public sealed class TeamModel : ITeamService
 
         if (resolution.Status != ShareLineStatus.Verified)
         {
+            if (!resolution.Notice.Sharing && !string.IsNullOrEmpty(resolution.Notice.PlayerUid))
+            {
+                _sharing[resolution.Notice.PlayerUid] = false;
+            }
+
             return ShareChatDisposition.Unverified;
         }
 

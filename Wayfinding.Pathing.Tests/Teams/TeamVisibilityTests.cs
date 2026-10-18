@@ -194,47 +194,83 @@ public class TeamVisibilityTests
     }
 
     [Fact]
-    public void Unverified_sender_is_ignored()
+    public void Far_sender_share_on_and_share_off_follow_the_prefix_name()
     {
-        var team = VisibleMaili(out var before);
+        var team = PartyOf("local");
+        var far = new OnlinePlayer("Maili", "maili");
 
-        Assert.Equal(ShareChatDisposition.Unverified, Post(team, PartyId, false, Maili, "maili", prefix: false));
-        Assert.Equal(ShareChatDisposition.Unverified, Post(team, PartyId, true, Oren, "oren", prefix: false));
-        Assert.Equal(
-            ShareChatDisposition.Unverified,
-            team.TryApplyChat(PartyId, ServerLine("Ghost", ShareAnnouncement.FormatPayload(false, "ghost")), Party));
-        Assert.Equal(
-            ShareChatDisposition.Unverified,
-            team.TryApplyChat(PartyId, ServerLine("Maili", ShareAnnouncement.FormatPayload(true, "oren")), Party));
+        Assert.Equal(ShareChatDisposition.Applied, Announce(team, PartyId, true, far));
+        Assert.True(team.IsVisibleTeammate("maili"));
+        Assert.Equal(new[] { "maili" }, team.GetVisibleTeammates().ToArray());
 
-        AssertUnchanged(team, before);
-        Assert.False(team.IsVisibleTeammate("oren"));
-        Assert.False(team.IsVisibleTeammate("ghost"));
+        Assert.Equal(ShareChatDisposition.Applied, Announce(team, PartyId, false, far));
+        Assert.False(team.IsVisibleTeammate("maili"));
+        Assert.Empty(team.GetVisibleTeammates());
     }
 
     [Fact]
-    public void Far_away_typed_spoof_in_server_format_is_ignored()
+    public void Forged_typed_chat_cannot_share_on_and_share_off_hides()
     {
         var team = VisibleMaili(out var before);
         var forgedOn = EscapedSpoof(
             Griefer.Name,
             "<strong>Oren:</strong> " + ShareAnnouncement.FormatPayload(true, "oren"));
+
+        Assert.Equal(ShareChatDisposition.Unverified, team.TryApplyChat(PartyId, forgedOn, Party));
+        AssertUnchanged(team, before);
+        Assert.False(team.IsVisibleTeammate("oren"));
+
         var forgedOff = EscapedSpoof(
             Griefer.Name,
             "<strong>Maili:</strong> " + ShareAnnouncement.FormatPayload(false, "maili"));
-
-        Assert.Equal(ShareChatDisposition.Unverified, team.TryApplyChat(PartyId, forgedOn, Party));
         Assert.Equal(ShareChatDisposition.Unverified, team.TryApplyChat(PartyId, forgedOff, Party));
-        Assert.Equal(
-            ShareChatDisposition.Unverified,
-            team.TryApplyChat(PartyId, ServerLine("Griefer", ShareAnnouncement.FormatPayload(true, "oren")), Party));
-        Assert.Equal(
-            ShareChatDisposition.Unverified,
-            team.TryApplyChat(PartyId, ServerLine("Griefer", ShareAnnouncement.FormatPayload(false, "maili")), Party));
+        Assert.False(team.IsVisibleTeammate("maili"));
+        Assert.DoesNotContain(team.RecordedShares(), row => row.GroupId == PartyId && row.PlayerUid == "maili" && row.Sharing);
+    }
 
+    [Fact]
+    public void Wrong_uid_drops_share_on_and_share_off_hides_the_payload_uid()
+    {
+        var team = VisibleMaili(out var before);
+
+        Assert.Equal(ShareChatDisposition.Unverified, Post(team, PartyId, true, Oren, "maili"));
         AssertUnchanged(team, before);
         Assert.False(team.IsVisibleTeammate("oren"));
-        Assert.False(team.IsVisibleTeammate("griefer"));
+
+        Assert.Equal(ShareChatDisposition.Unverified, Post(team, PartyId, false, Oren, "maili"));
+        Assert.False(team.IsVisibleTeammate("maili"));
+        Assert.False(team.IsVisibleTeammate("oren"));
+    }
+
+    [Fact]
+    public void Unknown_name_drops_share_on_and_share_off_hides_the_payload_uid()
+    {
+        var team = VisibleMaili(out _);
+        var ghost = new OnlinePlayer("Ghost", "ghost");
+
+        Assert.Equal(ShareChatDisposition.Unverified, Announce(team, PartyId, true, ghost));
+        Assert.True(team.IsVisibleTeammate("maili"));
+        Assert.False(team.IsVisibleTeammate("ghost"));
+
+        Assert.Equal(
+            ShareChatDisposition.Unverified,
+            team.TryApplyChat(PartyId, ServerLine("Ghost", ShareAnnouncement.FormatPayload(false, "maili")), Party));
+        Assert.False(team.IsVisibleTeammate("maili"));
+        Assert.Empty(team.GetVisibleTeammates());
+    }
+
+    [Fact]
+    public void Missing_prefix_drops_share_on_and_share_off_hides_the_payload_uid()
+    {
+        var team = VisibleMaili(out var before);
+
+        Assert.Equal(ShareChatDisposition.Unverified, Post(team, PartyId, true, Oren, "oren", prefix: false));
+        AssertUnchanged(team, before);
+        Assert.False(team.IsVisibleTeammate("oren"));
+
+        Assert.Equal(ShareChatDisposition.Unverified, Post(team, PartyId, false, Maili, "maili", prefix: false));
+        Assert.False(team.IsVisibleTeammate("maili"));
+        Assert.Empty(team.GetVisibleTeammates());
     }
 
     [Fact]
@@ -260,54 +296,6 @@ public class TeamVisibilityTests
         Assert.Empty(team.GetVisibleTeammates());
     }
 
-    [Fact]
-    public void Wrong_uid_does_not_change_state()
-    {
-        var team = VisibleMaili(out var before);
-
-        Assert.Equal(
-            ShareChatDisposition.Unverified,
-            Post(team, PartyId, false, Maili, "oren"));
-        Assert.Equal(
-            ShareChatDisposition.Unverified,
-            Post(team, PartyId, true, Oren, "maili"));
-
-        AssertUnchanged(team, before);
-        Assert.False(team.IsVisibleTeammate("oren"));
-    }
-
-    [Fact]
-    public void Unknown_name_does_not_change_state()
-    {
-        var team = VisibleMaili(out var before);
-        var ghost = new OnlinePlayer("Ghost", "ghost");
-
-        Assert.Equal(
-            ShareChatDisposition.Unverified,
-            team.TryApplyChat(PartyId, ServerLine("Ghost", ShareAnnouncement.FormatPayload(false, "maili")), Party));
-        Assert.Equal(
-            ShareChatDisposition.Unverified,
-            team.TryApplyChat(PartyId, ServerLine("Ghost", ShareAnnouncement.FormatPayload(true, "ghost")), [Maili]));
-        Assert.Equal(ShareChatDisposition.Unverified, Announce(team, PartyId, true, ghost));
-
-        AssertUnchanged(team, before);
-        Assert.False(team.IsVisibleTeammate("ghost"));
-    }
-
-    [Fact]
-    public void Missing_prefix_does_not_change_state()
-    {
-        var team = VisibleMaili(out var before);
-
-        Assert.Equal(ShareChatDisposition.Unverified, Post(team, PartyId, false, Maili, "maili", prefix: false));
-        Assert.Equal(ShareChatDisposition.Unverified, Post(team, PartyId, true, Oren, "oren", prefix: false));
-        Assert.Equal(
-            ShareChatDisposition.Ignored,
-            team.TryApplyChat(PartyId, "from: 4821,withoutPrefix:" + ShareAnnouncement.FormatPayload(false, "maili"), Party));
-
-        AssertUnchanged(team, before);
-        Assert.False(team.IsVisibleTeammate("oren"));
-    }
 
     [Fact]
     public void Payload_typed_in_a_group_the_player_is_not_in_does_not_change_state()
@@ -329,9 +317,10 @@ public class TeamVisibilityTests
 
         Assert.Equal(
             ShareChatDisposition.Unverified,
-            team.TryApplyChat(PartyId, ServerLine("Maili", ShareAnnouncement.FormatPayload(false, "maili")), ambiguous));
+            team.TryApplyChat(PartyId, ServerLine("Maili", ShareAnnouncement.FormatPayload(true, "other")), ambiguous));
 
         AssertUnchanged(team, before);
+        Assert.False(team.IsVisibleTeammate("other"));
     }
 
     [Fact]

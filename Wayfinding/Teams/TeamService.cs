@@ -273,6 +273,7 @@ public sealed class TeamService : ITeamService, ITeammateVisibility, IDisposable
         else if (receipt.Disposition == ShareChatDisposition.Unverified)
         {
             NoteUnverified(receipt);
+            NoteVisibility();
         }
 
         FlushPending();
@@ -498,7 +499,7 @@ public sealed class TeamService : ITeamService, ITeammateVisibility, IDisposable
             .Select(group => group.GroupId.ToString(CultureInfo.InvariantCulture) + "=" + group.Name));
     }
 
-    private sealed class GameTickClock : ITeamClock
+    private sealed class GameTickClock : IClock
     {
         public long Milliseconds => Environment.TickCount64;
     }

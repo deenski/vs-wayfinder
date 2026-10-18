@@ -4,7 +4,7 @@ namespace Wayfinding.Pathing.Teams;
 /// Monotonic clock for share-chat spacing. The game adapter uses tick time.
 /// Tests supply their own.
 /// </summary>
-public interface ITeamClock
+public interface IClock
 {
     /// <summary>Milliseconds since an arbitrary origin. Only differences matter.</summary>
     long Milliseconds { get; }

@@ -10,23 +10,26 @@ public sealed class ShareOutbox
     /// <summary>Vintage Story's default <c>ChatRateLimitMs</c>. A gap of this many milliseconds is allowed.</summary>
     public const int ChatRateLimitMs = 1000;
 
-    /// <summary>Minimum spacing between sends. This is above <see cref="ChatRateLimitMs"/>.</summary>
-    public const int SpacingMs = 1500;
+    /// <summary>Gap after a send or any echo of this client's own chat. This is above <see cref="ChatRateLimitMs"/>.</summary>
+    public const int SpacingMs = 1100;
 
-    private readonly ITeamClock _clock;
+    /// <summary>How many times one queued line is handed out before it is dropped. The echo ack stops it sooner.</summary>
+    public const int MaxSends = 5;
+
+    private readonly IClock _clock;
     private readonly int _spacingMs;
     private readonly Dictionary<int, string> _pending = new();
+    private readonly Dictionary<int, int> _sends = new();
     private long _blockedUntil = long.MinValue;
 
     /// <summary>
-    /// Creates an outbox. Spacing below <see cref="SpacingMs"/> or below
-    /// <paramref name="rateLimitMs"/> is raised, so a requested gap of 0 or 900
-    /// still waits <see cref="SpacingMs"/>.
+    /// Creates an outbox. A requested gap below <see cref="SpacingMs"/> or below
+    /// <paramref name="rateLimitMs"/> is raised, so 0 and 900 still wait <see cref="SpacingMs"/>.
     /// </summary>
     /// <param name="clock">Clock that timestamps sends and echoes.</param>
     /// <param name="spacingMs">Requested gap between sends.</param>
     /// <param name="rateLimitMs">Server chat rate limit. The gap is at least this large.</param>
-    public ShareOutbox(ITeamClock clock, int spacingMs = SpacingMs, int rateLimitMs = ChatRateLimitMs)
+    public ShareOutbox(IClock clock, int spacingMs = SpacingMs, int rateLimitMs = ChatRateLimitMs)
     {
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _spacingMs = Math.Max(spacingMs, Math.Max(SpacingMs, rateLimitMs));
@@ -56,6 +59,7 @@ public sealed class ShareOutbox
         }
 
         _pending[groupId] = text;
+        _sends[groupId] = 0;
     }
 
     /// <summary>Drops queued groups that are not in <paramref name="groupIds"/>.</summary>
@@ -67,6 +71,7 @@ public sealed class ShareOutbox
             if (!groupIds.Contains(groupId))
             {
                 _pending.Remove(groupId);
+                _sends.Remove(groupId);
             }
         }
     }
@@ -75,6 +80,7 @@ public sealed class ShareOutbox
     public void Clear()
     {
         _pending.Clear();
+        _sends.Clear();
     }
 
     /// <summary>
@@ -94,13 +100,15 @@ public sealed class ShareOutbox
             && string.Equals(body, pending, StringComparison.Ordinal))
         {
             _pending.Remove(groupId);
+            _sends.Remove(groupId);
         }
     }
 
     /// <summary>
     /// Takes the lowest queued group id when the spacing window is open.
-    /// The item stays queued until <see cref="NoteOwnEcho"/> acknowledges it,
-    /// so a dropped send is returned again after the gap. The first take is immediate.
+    /// The item stays queued until <see cref="NoteOwnEcho"/> acknowledges it
+    /// or it has been handed out <see cref="MaxSends"/> times. A dropped send
+    /// is returned again after <see cref="SpacingMs"/>. The first take is immediate.
     /// </summary>
     public bool TryTake(out int groupId, out string text)
     {
@@ -119,6 +127,14 @@ public sealed class ShareOutbox
 
         groupId = _pending.Keys.Min();
         text = _pending[groupId];
+        var sent = _sends.GetValueOrDefault(groupId) + 1;
+        _sends[groupId] = sent;
+        if (sent >= MaxSends)
+        {
+            _pending.Remove(groupId);
+            _sends.Remove(groupId);
+        }
+
         _blockedUntil = now + _spacingMs;
         return true;
     }

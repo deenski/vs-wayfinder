@@ -15,8 +15,8 @@ public enum ShareChatDisposition
     Ignored,
 
     /// <summary>
-    /// A share payload was dropped because the sender was not verified.
-    /// No evidence or share flag was changed.
+    /// The sender was not verified. A share-on changed nothing. A share-off
+    /// hid that uid and did not add teammate evidence.
     /// </summary>
     Unverified,
 
