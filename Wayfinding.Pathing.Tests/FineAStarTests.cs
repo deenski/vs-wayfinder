@@ -715,16 +715,37 @@ public class FineAStarTests
 
     // ---------------------------------------------------------------- performance (WF-12 AC: 96-block window < 30 ms)
 
-    [Fact]
-    public void NinetySixBlockWindow_PlansQuickly()
+    private static (BlockGridSnapshot Grid, GridPos Start, GridPos Goal) NinetySixWindow()
     {
         string[] rows = RandomHeightmap(2026, 96, 96, closed: true, features: 0.05);
         BlockGridSnapshot grid = FakeGrid.FromHeightmap(rows);
         GridPos[] cells = Standable(grid, rows);
-        GridPos start = cells.MinBy(p => p.X + p.Z);
-        GridPos goal = cells.MaxBy(p => p.X + p.Z);
-        // Best of several runs, so tiered JIT warm-up is not what gets measured.
+        return (grid, cells.MinBy(p => p.X + p.Z), cells.MaxBy(p => p.X + p.Z));
+    }
+
+    /// <summary>
+    /// The default suite checks the work done, not the wall clock (review must-fix 3: the 100 ms assert failed
+    /// under CPU contention). The expansion count is deterministic.
+    /// </summary>
+    [Fact]
+    public void NinetySixBlockWindow_ExpandsADeterministicNodeCount()
+    {
+        (BlockGridSnapshot grid, GridPos start, GridPos goal) = NinetySixWindow();
         FineRoute r = FineAStar.FindPath(grid, start, goal);
+
+        Assert.Equal(FineSearchStatus.Found, r.Status);
+        Assert.Equal(4_143, r.Expanded);
+        Assert.Equal(ReferenceSearch.FindPath(grid, start, goal).Cost, r.Cost, Eps);
+        Assert.Equal(r.Expanded, FineAStar.FindPath(grid, start, goal).Expanded);
+    }
+
+    /// <summary>The wall-clock AC itself: opt-in, Release only (see <see cref="PerfFactAttribute"/>).</summary>
+    [PerfFact]
+    [Trait("Category", "Perf")]
+    public void NinetySixBlockWindow_PlansUnder30Ms()
+    {
+        (BlockGridSnapshot grid, GridPos start, GridPos goal) = NinetySixWindow();
+        FineRoute r = FineAStar.FindPath(grid, start, goal); // warm-up (tiered JIT)
         TimeSpan best = TimeSpan.MaxValue;
         for (int i = 0; i < 8; i++)
         {
@@ -733,10 +754,9 @@ public class FineAStarTests
             best = timer.Elapsed < best ? timer.Elapsed : best;
         }
 
-        Assert.Equal(FineSearchStatus.Found, r.Status);
-        // 30 ms is the target on a desktop; allow headroom for shared CI runners and Debug builds.
         Console.WriteLine($"96-block window: {best.TotalMilliseconds:F1} ms, {r.Expanded} expanded, cost {r.Cost:F1}");
-        Assert.True(best.TotalMilliseconds < 100, $"took {best.TotalMilliseconds:F1} ms, expanded {r.Expanded}");
+        Assert.Equal(FineSearchStatus.Found, r.Status);
+        Assert.True(best.TotalMilliseconds < 30, $"took {best.TotalMilliseconds:F1} ms, expanded {r.Expanded}");
     }
 
     [Fact]
