@@ -34,17 +34,29 @@ public class LoggingAndGuardTests
     [Fact]
     public void LogOnce_from_parallel_threads_writes_exactly_once()
     {
+        const int threads = 32;
+        const int rounds = 50;
         var sink = new ParallelSink();
         var log = new WayfindingLog(sink);
-        const int threads = 32;
         using var start = new Barrier(threads);
+        Exception? failure = null;
         var workers = new Thread[threads];
         for (var i = 0; i < threads; i++)
         {
             workers[i] = new Thread(() =>
             {
-                start.SignalAndWait();
-                log.LogOnce("gate:parallel", LogLevel.Warning, "parallel");
+                for (var round = 0; round < rounds; round++)
+                {
+                    start.SignalAndWait();
+                    try
+                    {
+                        log.LogOnce("gate:parallel:" + round, LogLevel.Warning, "parallel-" + round);
+                    }
+                    catch (Exception ex)
+                    {
+                        Interlocked.CompareExchange(ref failure, ex, null);
+                    }
+                }
             });
         }
 
@@ -55,11 +67,13 @@ public class LoggingAndGuardTests
 
         foreach (var worker in workers)
         {
-            Assert.True(worker.Join(TimeSpan.FromSeconds(10)));
+            Assert.True(worker.Join(TimeSpan.FromSeconds(30)));
         }
 
-        Assert.Equal(1, sink.Count);
-        Assert.Equal("[wayfinding] parallel", sink.OnlyLine);
+        Assert.Null(failure);
+        var lines = sink.Snapshot();
+        Assert.Equal(rounds, lines.Count);
+        Assert.Equal(rounds, lines.Distinct(StringComparer.Ordinal).Count());
     }
 
     [Fact]
@@ -113,28 +127,13 @@ public class LoggingAndGuardTests
     private sealed class ParallelSink : ILogSink
     {
         private readonly object gate = new();
-        private int count;
-        private string? line;
+        private readonly List<string> lines = new();
 
-        public int Count
+        public List<string> Snapshot()
         {
-            get
+            lock (gate)
             {
-                lock (gate)
-                {
-                    return count;
-                }
-            }
-        }
-
-        public string? OnlyLine
-        {
-            get
-            {
-                lock (gate)
-                {
-                    return line;
-                }
+                return new List<string>(lines);
             }
         }
 
@@ -142,8 +141,7 @@ public class LoggingAndGuardTests
         {
             lock (gate)
             {
-                count++;
-                line = written;
+                lines.Add(written);
             }
         }
     }
