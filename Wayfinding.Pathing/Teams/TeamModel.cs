@@ -122,7 +122,8 @@ public sealed class TeamModel : ITeamService
     /// Apply one chat line. The server name prefix must map to one online
     /// player, and that player's uid must match the payload. The payload is
     /// read only from the text after the prefix. An unverified share-on is
-    /// dropped. An unverified share-off hides that uid without adding evidence.
+    /// dropped. An unverified share-off in a group this client belongs to hides
+    /// that uid without adding evidence. General chat and other groups do not.
     /// </summary>
     internal ShareChatDisposition TryApplyChat(
         int groupId,
@@ -137,7 +138,9 @@ public sealed class TeamModel : ITeamService
 
         if (resolution.Status != ShareLineStatus.Verified)
         {
-            if (!resolution.Notice.Sharing && !string.IsNullOrEmpty(resolution.Notice.PlayerUid))
+            if (!resolution.Notice.Sharing
+                && !string.IsNullOrEmpty(resolution.Notice.PlayerUid)
+                && _groups.ContainsKey(groupId))
             {
                 _sharing[resolution.Notice.PlayerUid] = false;
             }

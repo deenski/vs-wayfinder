@@ -4,7 +4,7 @@ namespace Wayfinding.Infra;
 /// Whether a player may be targeted. Design §4: no line, marker, distance, or
 /// tether for anyone who is not a visible teammate.
 /// The argument is the name typed into <c>.nav player</c>, or a uid.
-/// TeamService resolves a name with a server-side name-to-uid lookup through
+/// TeamService resolves a name with a client-side name-to-uid lookup through
 /// AllOnlinePlayers and fails closed: an unknown name is not visible.
 /// When no team service is passed, the default denies every name.
 /// </summary>

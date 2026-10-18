@@ -314,6 +314,28 @@ public class TeamVisibilityTests
 
 
     [Fact]
+    public void Unverified_share_off_from_a_group_I_am_not_in_changes_nothing()
+    {
+        var team = VisibleMaili(out var before);
+        var off = ShareAnnouncement.FormatPayload(false, "maili");
+
+        Assert.Equal(ShareChatDisposition.Unverified, team.TryApplyChat(0, off, Party));
+        AssertUnchanged(team, before);
+
+        Assert.Equal(ShareChatDisposition.Unverified, team.TryApplyChat(99, off, Party));
+        AssertUnchanged(team, before);
+    }
+
+    [Fact]
+    public void Similar_names_do_not_resolve_to_a_uid()
+    {
+        OnlinePlayer[] online = [new("Maili", "maili")];
+
+        Assert.Null(OnlinePlayers.UidForName("maili", online));
+        Assert.Null(OnlinePlayers.UidForName("Mai", online));
+    }
+
+    [Fact]
     public void Payload_typed_in_a_group_the_player_is_not_in_does_not_change_state()
     {
         var team = VisibleMaili(out var before);

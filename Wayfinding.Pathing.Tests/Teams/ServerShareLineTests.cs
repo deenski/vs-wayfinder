@@ -60,6 +60,21 @@ public class ServerShareLineTests
     }
 
     [Fact]
+    public void Similar_names_do_not_resolve()
+    {
+        OnlinePlayer[] online = [new("Maili", "maili")];
+        var lower = ServerShareLine.Resolve(
+            "<strong>maili:</strong> " + ShareAnnouncement.FormatPayload(true, "maili"),
+            online);
+        var prefix = ServerShareLine.Resolve(
+            "<strong>Mai:</strong> " + ShareAnnouncement.FormatPayload(true, "maili"),
+            online);
+
+        Assert.NotEqual(ShareLineStatus.Verified, lower.Status);
+        Assert.NotEqual(ShareLineStatus.Verified, prefix.Status);
+    }
+
+    [Fact]
     public void Server_prefix_name_resolves_sender_uid()
     {
         var plain = Resolve("Maili", ShareAnnouncement.FormatChatMessage("Maili", true, "maili"));
