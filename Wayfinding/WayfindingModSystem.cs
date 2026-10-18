@@ -97,4 +97,17 @@ public class WayfindingModSystem : ModSystem
 
         Gate.Notify(new GateNotice(capi));
     }
+
+    public override void Dispose()
+    {
+        if (capi != null)
+        {
+            capi.Event.LevelFinalize -= OnLevelFinalize;
+            capi.Event.LeaveWorld -= Target.Clear;
+            capi = null;
+        }
+
+        Target.Clear();
+        base.Dispose();
+    }
 }

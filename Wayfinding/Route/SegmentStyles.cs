@@ -35,9 +35,11 @@ public static class SegmentStyles
     {
         return kind switch
         {
+            SegmentKind.Walk => Known,
+            SegmentKind.Swim => Known,
             SegmentKind.Build => Build,
             SegmentKind.Unknown => Unknown,
-            _ => Known,
+            _ => Unknown,
         };
     }
 }

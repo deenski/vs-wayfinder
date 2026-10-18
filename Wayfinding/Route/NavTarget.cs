@@ -26,6 +26,9 @@ public sealed class NavTarget
 
     public string? WaypointGuid { get; private set; }
 
+    /// <summary>Increments on every <see cref="Set"/> and <see cref="Clear"/> so a cached label can be dropped.</summary>
+    public int Revision { get; private set; }
+
     public void Set(double x, double y, double z, NavTargetKind kind, string? waypointGuid)
     {
         Has = true;
@@ -34,6 +37,7 @@ public sealed class NavTarget
         Z = z;
         Kind = kind;
         WaypointGuid = waypointGuid;
+        Revision++;
     }
 
     public void Clear()
@@ -41,5 +45,6 @@ public sealed class NavTarget
         Has = false;
         Kind = NavTargetKind.None;
         WaypointGuid = null;
+        Revision++;
     }
 }

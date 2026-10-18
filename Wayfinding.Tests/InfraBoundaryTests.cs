@@ -56,6 +56,10 @@ public class InfraBoundaryTests
         Assert.DoesNotContain("BeginSubCommand(\"team\")", commands, StringComparison.Ordinal);
         Assert.Contains("if (Gate.IsEnabled(Feature.MapLayer))", mod, StringComparison.Ordinal);
         Assert.Contains("RegisterMapLayer<WayfindingMapLayer>", mod, StringComparison.Ordinal);
+        Assert.Contains("public override void Dispose()", mod, StringComparison.Ordinal);
+        Assert.Contains("LevelFinalize -= OnLevelFinalize", mod, StringComparison.Ordinal);
+        Assert.Contains("LeaveWorld -= Target.Clear", mod, StringComparison.Ordinal);
+        Assert.Contains("Target.Clear()", mod, StringComparison.Ordinal);
     }
 
     [Fact]

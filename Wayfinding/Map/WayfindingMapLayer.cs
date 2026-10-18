@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq.Expressions;
-using System.Reflection;
 using System.Text;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
@@ -33,7 +31,6 @@ public sealed class WayfindingMapLayer : MapLayer
 
     static readonly Vec4f ArrowColor = new(1f, 1f, 1f, 0.95f);
     static readonly Vec4f RestoreColor = new(1f, 1f, 1f, 1f);
-    static readonly System.Func<GuiElementMap, bool>? FollowsPlayer = CreateFollowsPlayerReader();
 
     readonly WayfindingModSystem mod;
     readonly ICoreClientAPI? capi;
@@ -47,12 +44,16 @@ public sealed class WayfindingMapLayer : MapLayer
     CairoFont? labelFont;
     string? labelText;
     int labelMeters = -1;
+    int labelRevision;
+    int uploadedMeters = -1;
+    long uploadedAtMs;
     bool disposed;
     bool armThrow;
+    bool inputDisabled;
     bool clickDisabled;
     bool waypointHitsDisabled;
     bool playerHitsDisabled;
-    bool minimapReaderLogged;
+    bool minimapDisabled;
     float dragPixels;
     bool dragOpen;
     FineRoute? straight;
@@ -118,33 +119,39 @@ public sealed class WayfindingMapLayer : MapLayer
             return;
         }
 
-        if (mapElem.IsDragingMap)
+        if (MapInputPolicy.AllowsInput(inputDisabled) && mod.IsEnabled(Feature.MapViewport))
         {
-            if (!dragOpen)
+            try
             {
-                dragPixels = 0;
-                dragOpen = true;
+                AccountDrag(args, mapElem);
             }
-
-            dragPixels += Math.Abs(args.DeltaX) + Math.Abs(args.DeltaY);
-        }
-        else
-        {
-            dragOpen = false;
-            dragPixels = 0;
+            catch (Exception ex)
+            {
+                inputDisabled = true;
+                mod.Log.LogOnce("map-input", LogLevel.Error, "map input disabled after " + ex.GetType().Name + ": " + ex.Message);
+            }
         }
 
-        if (!Active || labelText == null)
+        DropStaleLabel();
+        if (!Active || !HoverLabelPolicy.Show(mod.Target.Has, mod.RenderGuard.LayerEnabled))
         {
             return;
         }
 
-        hoverText.AppendLine(labelText);
+        if (TryMeters(out int meters))
+        {
+            NoteMeters(meters);
+        }
+
+        if (labelText != null)
+        {
+            hoverText.AppendLine(labelText);
+        }
     }
 
     public override void OnMouseUpClient(MouseEvent args, GuiElementMap mapElem)
     {
-        if (capi == null || args.Handled || args.Button != EnumMouseButton.Left || !CtrlDown)
+        if (!MapInputPolicy.AllowsInput(inputDisabled) || capi == null || args.Handled || args.Button != EnumMouseButton.Left || !CtrlDown)
         {
             return;
         }
@@ -171,7 +178,7 @@ public sealed class WayfindingMapLayer : MapLayer
             catch (Exception ex)
             {
                 waypointHitsDisabled = true;
-                mod.Log.LogOnce("map-waypoint-hit", LogLevel.Error, "waypoint hit-testing disabled after an input error: " + ex.Message);
+                mod.Log.LogOnce("map-waypoint-hit", LogLevel.Error, "waypoint hit-testing disabled after " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -184,22 +191,24 @@ public sealed class WayfindingMapLayer : MapLayer
             catch (Exception ex)
             {
                 playerHitsDisabled = true;
-                mod.Log.LogOnce("map-player-hit", LogLevel.Error, "player hit-testing disabled after an input error: " + ex.Message);
+                mod.Log.LogOnce("map-player-hit", LogLevel.Error, "player hit-testing disabled after " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
-        if (waypoint?.Position != null)
+        bool applied;
+        try
         {
-            mod.Target.Set(waypoint.Position.X, waypoint.Position.Y, waypoint.Position.Z, NavTargetKind.Waypoint, waypoint.Guid);
-            Say("waypoint '" + (waypoint.Title ?? waypoint.Guid) + "'");
+            applied = TryApplyHit(waypoint, player);
+        }
+        catch (Exception ex)
+        {
+            inputDisabled = true;
+            mod.Log.LogOnce("map-input", LogLevel.Error, "map input disabled after " + ex.GetType().Name + ": " + ex.Message);
             return;
         }
 
-        if (player != null && TrackedPlayerPosition.TryHorizontal(player, out double playerX, out double playerZ))
+        if (applied)
         {
-            double playerY = player.AssociatedPlayer?.Entity != null ? player.AssociatedPlayer.Entity.Pos.Y : 0;
-            mod.Target.Set(playerX, playerY, playerZ, NavTargetKind.Coordinate, null);
-            Say("player " + player.PlayerUid);
             return;
         }
 
@@ -210,7 +219,7 @@ public sealed class WayfindingMapLayer : MapLayer
         catch (Exception ex)
         {
             clickDisabled = true;
-            mod.Log.LogOnce("map-click", LogLevel.Error, "map click disabled after a coordinate error: " + ex.Message);
+            mod.Log.LogOnce("map-click", LogLevel.Error, "map click disabled after " + ex.GetType().Name + ": " + ex.Message);
         }
     }
 
@@ -243,11 +252,11 @@ public sealed class WayfindingMapLayer : MapLayer
             return;
         }
 
+        DropStaleLabel();
         var pos = capi.World.Player.Entity.Pos;
         GridPos from = CellOf(pos.X, pos.Y, pos.Z);
         GridPos to = CellOf(mod.Target.X, mod.Target.Y, mod.Target.Z);
         FineRoute route = StraightUnknown(from, to);
-        UpdateLabel(pos.X, pos.Z, mod.Target.X, mod.Target.Z);
         Draw(map, route);
     }
 
@@ -280,7 +289,7 @@ public sealed class WayfindingMapLayer : MapLayer
 
         quad ??= capi.Render.UploadMesh(QuadMeshUtil.GetQuad());
         IShaderProgram prog = capi.Render.GetEngineShader(EnumShaderProgram.Gui);
-        bool minimap = IsMinimap(map);
+        bool minimap = IsMinimap();
         float originX = (float)map.Bounds.renderX;
         float originY = (float)map.Bounds.renderY;
         capi.Render.PushScissor(map.Bounds, true);
@@ -406,7 +415,27 @@ public sealed class WayfindingMapLayer : MapLayer
 
     void DrawLabel(GuiElementMap map, float edgeX, float edgeY, MapViewRect view)
     {
-        if (capi == null || labelTexture == null || labelTexture.TextureId == 0)
+        if (capi == null || !TryMeters(out int meters))
+        {
+            return;
+        }
+
+        long now = capi.World.ElapsedMilliseconds;
+        if (LabelUpload.ShouldUpload(meters, uploadedMeters, now, uploadedAtMs))
+        {
+            NoteMeters(meters);
+            if (labelText == null)
+            {
+                return;
+            }
+
+            labelFont ??= CairoFont.WhiteDetailText();
+            capi.Gui.TextTexture.GenOrUpdateTextTexture(labelText, labelFont, ref labelTexture);
+            uploadedMeters = meters;
+            uploadedAtMs = now;
+        }
+
+        if (labelTexture == null || labelTexture.TextureId == 0)
         {
             return;
         }
@@ -436,23 +465,71 @@ public sealed class WayfindingMapLayer : MapLayer
         capi.Render.RenderMesh(quad);
     }
 
-    bool IsMinimap(GuiElementMap map)
+    bool IsMinimap()
     {
-        if (FollowsPlayer == null)
+        if (!mod.IsEnabled(Feature.MinimapEdge) || minimapDisabled || capi == null)
         {
-            if (!minimapReaderLogged)
-            {
-                minimapReaderLogged = true;
-                mod.Log.LogOnce(
-                    "map-minimap",
-                    LogLevel.Warning,
-                    "minimap edge arrow unavailable; GuiElementMap.snapToPlayer could not be read. Both maps clip the line.");
-            }
-
             return false;
         }
 
-        return FollowsPlayer(map);
+        try
+        {
+            return DialogIsHud();
+        }
+        catch (Exception ex)
+        {
+            minimapDisabled = true;
+            mod.Log.LogOnce("map-minimap", LogLevel.Error, "minimap edge disabled after " + ex.GetType().Name + ": " + ex.Message);
+            return false;
+        }
+    }
+
+    bool DialogIsHud()
+    {
+        return capi!.ModLoader.GetModSystem<WorldMapManager>().worldMapDlg?.DialogType == EnumDialogType.HUD;
+    }
+
+    void AccountDrag(MouseEvent args, GuiElementMap mapElem)
+    {
+        if (mapElem.IsDragingMap)
+        {
+            if (!dragOpen)
+            {
+                dragPixels = 0;
+                dragOpen = true;
+            }
+
+            dragPixels += Math.Abs(args.DeltaX) + Math.Abs(args.DeltaY);
+            return;
+        }
+
+        dragOpen = false;
+        dragPixels = 0;
+    }
+
+    bool TryApplyHit(Waypoint? waypoint, PacketPlayerPosition? player)
+    {
+        if (waypoint?.Position != null)
+        {
+            mod.Target.Set(waypoint.Position.X, waypoint.Position.Y, waypoint.Position.Z, NavTargetKind.Waypoint, waypoint.Guid);
+            Say("waypoint '" + (waypoint.Title ?? waypoint.Guid) + "'");
+            return true;
+        }
+
+        if (player != null && TrackedPlayerPosition.TryHorizontal(player, out double playerX, out double playerZ))
+        {
+            mod.Target.Set(playerX, PlayerFeetY(player), playerZ, NavTargetKind.Coordinate, null);
+            Say("player " + player.PlayerUid);
+            return true;
+        }
+
+        return false;
+    }
+
+    static double PlayerFeetY(PacketPlayerPosition player)
+    {
+        var entity = player.AssociatedPlayer?.Entity;
+        return entity != null ? entity.Pos.Y : 0;
     }
 
     static void SetFlatColor(IShaderProgram prog)
@@ -691,43 +768,40 @@ public sealed class WayfindingMapLayer : MapLayer
         return view.BlockWidth != 0 && view.BlockHeight != 0 && view.InnerWidth != 0 && view.InnerHeight != 0;
     }
 
-    void UpdateLabel(double fromX, double fromZ, double toX, double toZ)
+    void DropStaleLabel()
     {
-        if (capi == null)
+        if (!HoverLabelPolicy.ShouldReset(labelRevision, mod.Target.Revision, mod.Target.Has, mod.RenderGuard.LayerEnabled))
         {
             return;
         }
 
-        int meters = MapMath.RoundedMeters(MapMath.HorizontalDistance(fromX, fromZ, toX, toZ));
-        if (meters == labelMeters && labelTexture != null)
+        labelText = null;
+        labelMeters = -1;
+        uploadedMeters = -1;
+        labelRevision = mod.Target.Revision;
+    }
+
+    void NoteMeters(int meters)
+    {
+        if (meters == labelMeters && labelText != null)
         {
             return;
         }
 
         labelMeters = meters;
         labelText = DistanceText.Format(meters);
-        labelFont ??= CairoFont.WhiteDetailText();
-        capi.Gui.TextTexture.GenOrUpdateTextTexture(labelText, labelFont, ref labelTexture);
     }
 
-    static System.Func<GuiElementMap, bool>? CreateFollowsPlayerReader()
+    bool TryMeters(out int meters)
     {
-        FieldInfo? field = typeof(GuiElementMap).GetField(
-            "snapToPlayer",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        if (field == null || field.FieldType != typeof(bool))
+        meters = 0;
+        if (capi?.World.Player?.Entity == null || !mod.Target.Has)
         {
-            return null;
+            return false;
         }
 
-        try
-        {
-            ParameterExpression map = Expression.Parameter(typeof(GuiElementMap), "map");
-            return Expression.Lambda<System.Func<GuiElementMap, bool>>(Expression.Field(map, field), map).Compile();
-        }
-        catch (Exception)
-        {
-            return null;
-        }
+        var pos = capi.World.Player.Entity.Pos;
+        meters = MapMath.RoundedMeters(MapMath.HorizontalDistance(pos.X, pos.Z, mod.Target.X, mod.Target.Z));
+        return true;
     }
 }
