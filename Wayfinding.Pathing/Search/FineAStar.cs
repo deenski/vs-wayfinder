@@ -22,13 +22,19 @@ namespace Wayfinding.Pathing.Search;
 /// on a strictly cheaper path, so the same grid and endpoints always give the same route.</para>
 /// <para><b>Unknown.</b> Moves that depend on Unknown cells are never taken. If the goal cannot be reached over
 /// known terrain but Unknown was met, the route runs to the boundary position with the lowest
-/// (g + h, h, X, Y, Z) and ends in a straight <see cref="UnknownSegment"/> to the goal. Budget and time
-/// exhaustion return the same kind of partial route from the best expanded position.</para>
+/// (g + h, h, X, Y, Z) and ends in a straight <see cref="UnknownSegment"/> to the goal (min-f fits there: the
+/// tail really is an optimistic guess over Unknown terrain).</para>
+/// <para><b>Budgets.</b> When the node or time budget runs out, the route runs to the open-frontier position
+/// with the lowest (h, g, X, Y, Z): the position nearest the goal that the search was about to explore, reached
+/// over an optimal prefix. It then ends in an <see cref="UnknownSegment"/> to the goal. That tail is the
+/// unplanned remainder drawn as a straight line. It is not a walkable claim and may pass through known solid
+/// blocks; renderers must style it as <see cref="SegmentKind.Unknown"/>, never as a Known segment.</para>
 /// <para>Reads the grid only, allocates per call, and keeps no static state, so concurrent calls are safe.</para>
 /// </remarks>
 public static class FineAStar
 {
     private const double Epsilon = 1e-9;
+    private const double SqrtTwoMinusOne = 0.41421356237309515; // Math.Sqrt(2) - 1
 
     private static readonly (int Dx, int Dz)[] Directions =
     [
@@ -58,10 +64,10 @@ public static class FineAStar
     {
         ArgumentNullException.ThrowIfNull(model);
         // Octile distance: the cheapest way to cover (dx, dz) with unit and diagonal (√2) column steps. Tighter
-        // than the Euclidean ClimbCostModel.Heuristic and still a lower bound for every move (bridges are straight).
+        // than the Euclidean ClimbCostModel.Heuristic and a lower bound for every move made of such steps.
         double ax = Math.Abs((double)goal.X - from.X);
         double az = Math.Abs((double)goal.Z - from.Z);
-        double h = Math.Max(ax, az) + (Math.Sqrt(2) - 1) * Math.Min(ax, az);
+        double h = Math.Max(ax, az) + SqrtTwoMinusOne * Math.Min(ax, az);
         long dy = (long)goal.Y - from.Y;
         return dy >= 0 ? h + model.Options.UphillPenalty * dy : h + model.Options.DownhillPenalty * -(double)dy;
     }
@@ -146,8 +152,7 @@ public static class FineAStar
             long t0 = _o.TimeProvider.GetTimestamp();
             Push(_start, 0, -1, MoveKind.Start, 0, null);
             int expanded = 0;
-            int bestExpanded = -1;
-            int bestBoundary = -1;
+            int bestBoundary = -1; // Unknown fallback: lowest (g + h, h, X, Y, Z) among positions next to Unknown
 
             while (_open.TryDequeue(out int ni, out Key key))
             {
@@ -169,23 +174,18 @@ public static class FineAStar
 
                 if (expanded >= _o.MaxNodes)
                 {
-                    return Partial(FineSearchStatus.BudgetExhausted, bestExpanded, expanded);
+                    return Partial(FineSearchStatus.BudgetExhausted, ClosestFrontier(), expanded);
                 }
 
                 if (_o.MaxTime is { } maxTime && expanded % FineSearchOptions.TimeCheckInterval == 0
                     && _o.TimeProvider.GetElapsedTime(t0) > maxTime)
                 {
-                    return Partial(FineSearchStatus.TimedOut, bestExpanded, expanded);
+                    return Partial(FineSearchStatus.TimedOut, ClosestFrontier(), expanded);
                 }
 
                 node.Closed = true;
                 _nodes[ni] = node;
                 expanded++;
-                if (bestExpanded < 0 || Better(ni, bestExpanded))
-                {
-                    bestExpanded = ni;
-                }
-
                 int unknownBefore = _unknownMoves;
                 ExpandWalking(ni);
                 if (_o.Build.Allowed)
@@ -212,6 +212,43 @@ public static class FineAStar
             return KeyComparer.Instance.Compare(
                 new Key(na.G + na.H, na.H, na.Pos.X, na.Pos.Y, na.Pos.Z),
                 new Key(nb.G + nb.H, nb.H, nb.Pos.X, nb.Pos.Y, nb.Pos.Z)) < 0;
+        }
+
+        /// <summary>
+        /// The budget / time-out fallback (PR #6 review, must-fix 1): the open (generated, not yet expanded) position
+        /// nearest the goal by h, ties to the lower g, then X, Y, Z. Its parent is expanded, so the route to it is an
+        /// optimal prefix plus one valid move.
+        /// </summary>
+        /// <remarks>
+        /// Neither expanded-set rule makes progress around an obstacle. Min-f stalls at the last position before
+        /// the first detour, because f never decreases in expansion order with a consistent h. Min-h over expanded
+        /// positions stalls too: the wall face straight towards the goal stays the expanded position with the
+        /// lowest h until the search has nearly finished. On the review's 60×40 wall field (746 expansions to the
+        /// goal), both rules returned (19, 1, 35) at every budget from 50 to 700. The open frontier is where the
+        /// search is about to go, and its lowest-h member moves along the wall towards the gap as the budget grows.
+        /// One O(n) scan, done only when the search gives up.
+        /// </remarks>
+        private int ClosestFrontier()
+        {
+            int best = -1;
+            for (int i = 0; i < _nodes.Count; i++)
+            {
+                if (!_nodes[i].Closed && (best < 0 || Closer(i, best)))
+                {
+                    best = i;
+                }
+            }
+
+            return best;
+        }
+
+        private bool Closer(int a, int b)
+        {
+            Node na = _nodes[a];
+            Node nb = _nodes[b];
+            return KeyComparer.Instance.Compare(
+                new Key(na.H, na.G, na.Pos.X, na.Pos.Y, na.Pos.Z),
+                new Key(nb.H, nb.G, nb.Pos.X, nb.Pos.Y, nb.Pos.Z)) < 0;
         }
 
         private bool IsClosed(GridPos p) => _index.TryGetValue(p, out int i) && _nodes[i].Closed;
@@ -272,7 +309,12 @@ public static class FineAStar
             }
         }
 
-        /// <summary>Step (climb 2) and Pillar (climb 3..MaxPillarHeight): stack blocks in the own column, then step up.</summary>
+        /// <summary>
+        /// Step and Pillar: for each climb from <c>MaxClimb + 1</c> to <c>MaxPillarHeight</c>, stack
+        /// <c>climb − MaxClimb</c> blocks in the own column (feet cell upward), stand on them, then make an ordinary
+        /// step of <c>+MaxClimb</c> into a neighbouring column. With the default <c>MaxClimb = 1</c> that is the
+        /// design's "climb − 1 blocks". 1 block is a <see cref="BuildKind.Step"/>, more is a <see cref="BuildKind.Pillar"/>.
+        /// </summary>
         private void ExpandPillars(int ni)
         {
             GridPos cur = _nodes[ni].Pos;
@@ -286,9 +328,10 @@ public static class FineAStar
             double uphill = _model.Options.UphillPenalty;
             double penalty = _o.Build.BuildPenalty;
             int top = _o.Build.MaxPillarHeight;
-            for (int climb = _model.Options.MaxClimb + 1; climb <= top; climb++)
+            int maxClimb = _model.Options.MaxClimb;
+            for (int climb = maxClimb + 1; climb <= top; climb++)
             {
-                int blocks = climb - 1;
+                int blocks = climb - maxClimb; // ≥ 1; the final walking leg climbs maxClimb (possibly 0)
 
                 // The placement cells (feet upward) must take a block; the cells above them must hold the body.
                 bool ok = true;
@@ -356,9 +399,9 @@ public static class FineAStar
                         continue;
                     }
 
-                    MoveKind kind = climb == 2 ? MoveKind.Step : MoveKind.Pillar;
+                    MoveKind kind = blocks == 1 ? MoveKind.Step : MoveKind.Pillar;
                     var detail = new BuildDetail(
-                        climb == 2 ? BuildKind.Step : BuildKind.Pillar,
+                        blocks == 1 ? BuildKind.Step : BuildKind.Pillar,
                         [new RouteStep(pillarTop, kind, climbCost, blocks)],
                         _overlay.ToArray());
                     Push(dest, g + climbCost + step.Cost, ni, kind, step.Cost, detail);

@@ -252,6 +252,84 @@ public class FineAStarTests
         AssertValid(grid, r, Model);
     }
 
+    /// <summary>
+    /// Review case (must-fix 1): 60 x 40 field, a wall at x = 20 with a gap at z = 0, start (2,1,35), goal (57,1,35).
+    /// The full route takes 746 expansions. The old min-f choice returned the same 17-step prefix ending against
+    /// the wall face at (19,1,35) for every budget. The partial endpoint must now move along the detour, so the
+    /// true remaining cost (a full search from the endpoint) drops strictly as the budget grows.
+    /// </summary>
+    [Fact]
+    public void NodeBudget_PartialRoute_ProgressesAlongTheDetour()
+    {
+        BlockGridSnapshot grid = WallWithGap();
+        var start = new GridPos(2, 1, 35);
+        var goal = new GridPos(57, 1, 35);
+        FineRoute full = FineAStar.FindPath(grid, start, goal);
+        Assert.True(full.Found);
+        Assert.Equal(746, full.Expanded);
+
+        var ends = new List<GridPos>();
+        double previousRemaining = double.PositiveInfinity;
+        foreach (int budget in new[] { 50, 200, 400 })
+        {
+            FineRoute r = FineAStar.FindPath(grid, start, goal, new FineSearchOptions { MaxNodes = budget });
+            Assert.Equal(FineSearchStatus.BudgetExhausted, r.Status);
+            Assert.Equal(budget, r.Expanded);
+            AssertValid(grid, r, Model); // the planned (Known) part is walkable
+
+            GridPos end = r.Steps[^1].Pos;
+            Assert.Equal(end, r.Unknown!.Value.From);
+            Assert.Equal(goal, r.Unknown.Value.To);
+            Assert.NotEqual(new GridPos(19, 1, 35), end); // not stuck face-first against the wall
+
+            double remaining = FineAStar.FindPath(grid, end, goal).Cost;
+            Assert.True(remaining < previousRemaining - 1, $"budget {budget}: endpoint {end} has {remaining:F1} left, previous {previousRemaining:F1}");
+            previousRemaining = remaining;
+            ends.Add(end);
+
+            // The tail is the straight remaining leg and only ever drawn as Unknown, never as a Known segment.
+            IReadOnlyList<RoutePoint> drawn = RouteSimplifier.Simplify(r, grid, Model);
+            Assert.Equal(new RoutePoint(goal, SegmentKind.Unknown), drawn[^1]);
+            Assert.Equal(end, drawn[^2].Pos);
+            Assert.Single(drawn, p => p.Segment == SegmentKind.Unknown);
+        }
+
+        // Exact endpoints, pinned for determinism: down the wall towards the gap at z = 0.
+        Assert.Equal([new GridPos(19, 1, 33), new GridPos(19, 1, 28), new GridPos(19, 1, 15)], ends);
+    }
+
+    [Fact]
+    public void TimeBudget_UsesTheSameFrontierChoice_AsTheNodeBudget()
+    {
+        BlockGridSnapshot grid = WallWithGap();
+        var start = new GridPos(2, 1, 35);
+        var goal = new GridPos(57, 1, 35);
+        var clock = new SteppingTimeProvider(TimeSpan.FromMilliseconds(1));
+        // Clock reads at 0, 64, 128... expansions; elapsed passes 3.5 ms at the 4th check (192 expansions).
+        FineRoute timed = FineAStar.FindPath(grid, start, goal, new FineSearchOptions { MaxTime = TimeSpan.FromMilliseconds(3.5), TimeProvider = clock });
+        Assert.Equal(FineSearchStatus.TimedOut, timed.Status);
+        FineRoute budget = FineAStar.FindPath(grid, start, goal, new FineSearchOptions { MaxNodes = timed.Expanded });
+        Assert.Equal(budget.Steps[^1].Pos, timed.Steps[^1].Pos);
+        Assert.Equal(budget.Cost, timed.Cost, Eps);
+    }
+
+    private static BlockGridSnapshot WallWithGap()
+    {
+        var rows = new string[40];
+        for (int z = 0; z < 40; z++)
+        {
+            char[] row = new string('0', 60).ToCharArray();
+            if (z != 0)
+            {
+                row[20] = '#';
+            }
+
+            rows[z] = new string(row);
+        }
+
+        return FakeGrid.FromHeightmap(rows);
+    }
+
     [Fact]
     public void ReferenceBudgetSemantics_Match()
     {
@@ -296,6 +374,31 @@ public class FineAStarTests
         Assert.Equal(FineSearchStatus.Cancelled, r.Status);
         Assert.False(r.HasRoute);
         Assert.InRange(r.Expanded, 1, 3_000);
+    }
+
+    [Fact]
+    public async Task Cancellation_FromAnotherThread_StopsTheSearch()
+    {
+        // The goal is outside the grid, so without cancellation the search floods all 3600 positions.
+        BlockGridSnapshot grid = FakeGrid.Flat(60, 60);
+        using var cts = new CancellationTokenSource();
+        var gate = new GateGrid(grid, 5_000, cts.Token);
+
+        Task<FineRoute> search = Task.Factory.StartNew(
+            () => FineAStar.FindPath(gate, new GridPos(0, 1, 0), new GridPos(200, 1, 30), null, cts.Token),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        Assert.True(gate.Reached.Wait(TimeSpan.FromSeconds(30)), "the search never got going");
+        int cancellerThread = await Task.Run(() =>
+        {
+            cts.Cancel();
+            return Environment.CurrentManagedThreadId;
+        });
+
+        FineRoute r = await search;
+        Assert.NotEqual(gate.SearchThreadId, cancellerThread);
+        Assert.Equal(FineSearchStatus.Cancelled, r.Status);
+        Assert.False(r.HasRoute);
+        Assert.InRange(r.Expanded, 1, 3_599);
     }
 
     // ---------------------------------------------------------------- climb / drop limits
@@ -440,6 +543,58 @@ public class FineAStarTests
     }
 
     [Fact]
+    public void PillarBlocks_FollowMaxClimb()
+    {
+        // With MaxClimb = 2, a 3-block cliff needs 1 block (a Step), and a 4-block cliff needs 2 (a Pillar).
+        var climb2 = new ClimbCostModel(new ClimbCostOptions { MaxClimb = 2 });
+        BlockGridSnapshot three = FakeGrid.FromHeightmap(["######", "#0033#", "######"]);
+        FineRoute r3 = FineAStar.FindPath(three, new GridPos(1, 1, 1), new GridPos(4, 4, 1), WithBuild(model: climb2));
+        BuildSite s3 = Assert.Single(r3.BuildSites);
+        Assert.Equal(BuildKind.Step, s3.Kind);
+        Assert.Equal([new GridPos(2, 1, 1)], s3.Blocks);
+        Assert.Equal(1 + (1 + 4 * 3 + 24) + 1, r3.Cost, Eps);
+        AssertValid(three, r3, climb2);
+
+        BlockGridSnapshot four = FakeGrid.FromHeightmap(["######", "#0044#", "######"]);
+        FineRoute r4 = FineAStar.FindPath(four, new GridPos(1, 1, 1), new GridPos(4, 5, 1), WithBuild(model: climb2));
+        BuildSite s4 = Assert.Single(r4.BuildSites);
+        Assert.Equal(BuildKind.Pillar, s4.Kind);
+        Assert.Equal(2, s4.Count);
+        Assert.Equal(1 + (1 + 4 * 4 + 24 * 2) + 1, r4.Cost, Eps);
+        AssertValid(four, r4, climb2);
+
+        // With MaxClimb = 0 nothing is walked up; a 1-block rise takes 1 block and a level step off it.
+        var climb0 = new ClimbCostModel(new ClimbCostOptions { MaxClimb = 0 });
+        BlockGridSnapshot one = FakeGrid.FromHeightmap(["######", "#0011#", "######"]);
+        FineRoute r1 = FineAStar.FindPath(one, new GridPos(1, 1, 1), new GridPos(4, 2, 1), WithBuild(model: climb0));
+        BuildSite s1 = Assert.Single(r1.BuildSites);
+        Assert.Equal(BuildKind.Step, s1.Kind);
+        Assert.Equal([new GridPos(2, 1, 1)], s1.Blocks);
+        Assert.Equal(1 + (4 + 24 + 1) + 1, r1.Cost, Eps);
+        AssertValid(one, r1, climb0);
+        Assert.Equal(FineSearchStatus.NoPath, FineAStar.FindPath(one, new GridPos(1, 1, 1), new GridPos(4, 2, 1), new FineSearchOptions { Model = climb0 }).Status);
+    }
+
+    [Fact]
+    public void RouteDerivedValues_AreComputedOnce()
+    {
+        BlockGridSnapshot grid = FakeGrid.FromHeightmap(Cliff2);
+        FineRoute r = FineAStar.FindPath(grid, CliffStart, CliffTop, WithBuild());
+        Assert.Same(r.Path, r.Path);
+        Assert.Equal(r.Steps.Select(s => s.Pos), r.Path);
+        Assert.Equal(1, r.BlocksNeeded);
+        Assert.Equal(2, r.TotalClimb);
+
+        // 'with' recomputes from the new lists; equality still compares the positional members only.
+        FineRoute trimmed = r with { Steps = r.Steps.Take(2).ToArray(), BuildSites = [] };
+        Assert.Equal(2, trimmed.Path.Count);
+        Assert.Equal(0, trimmed.BlocksNeeded);
+        Assert.Equal(r, r with { });
+        Assert.Equal(r.GetHashCode(), (r with { }).GetHashCode());
+        Assert.NotEqual(r, trimmed);
+    }
+
+    [Fact]
     public void Chasm_GetsABridge_OverAirAndLava()
     {
         // Two cliffs at height 3 with a 2-wide gap down to the floor (air) or to lava.
@@ -560,16 +715,37 @@ public class FineAStarTests
 
     // ---------------------------------------------------------------- performance (WF-12 AC: 96-block window < 30 ms)
 
-    [Fact]
-    public void NinetySixBlockWindow_PlansQuickly()
+    private static (BlockGridSnapshot Grid, GridPos Start, GridPos Goal) NinetySixWindow()
     {
         string[] rows = RandomHeightmap(2026, 96, 96, closed: true, features: 0.05);
         BlockGridSnapshot grid = FakeGrid.FromHeightmap(rows);
         GridPos[] cells = Standable(grid, rows);
-        GridPos start = cells.MinBy(p => p.X + p.Z);
-        GridPos goal = cells.MaxBy(p => p.X + p.Z);
-        // Best of several runs, so tiered JIT warm-up is not what gets measured.
+        return (grid, cells.MinBy(p => p.X + p.Z), cells.MaxBy(p => p.X + p.Z));
+    }
+
+    /// <summary>
+    /// The default suite checks the work done, not the wall clock (review must-fix 3: the 100 ms assert failed
+    /// under CPU contention). The expansion count is deterministic.
+    /// </summary>
+    [Fact]
+    public void NinetySixBlockWindow_ExpandsADeterministicNodeCount()
+    {
+        (BlockGridSnapshot grid, GridPos start, GridPos goal) = NinetySixWindow();
         FineRoute r = FineAStar.FindPath(grid, start, goal);
+
+        Assert.Equal(FineSearchStatus.Found, r.Status);
+        Assert.Equal(4_143, r.Expanded);
+        Assert.Equal(ReferenceSearch.FindPath(grid, start, goal).Cost, r.Cost, Eps);
+        Assert.Equal(r.Expanded, FineAStar.FindPath(grid, start, goal).Expanded);
+    }
+
+    /// <summary>The wall-clock AC itself: opt-in, Release only (see <see cref="PerfFactAttribute"/>).</summary>
+    [PerfFact]
+    [Trait("Category", "Perf")]
+    public void NinetySixBlockWindow_PlansUnder30Ms()
+    {
+        (BlockGridSnapshot grid, GridPos start, GridPos goal) = NinetySixWindow();
+        FineRoute r = FineAStar.FindPath(grid, start, goal); // warm-up (tiered JIT)
         TimeSpan best = TimeSpan.MaxValue;
         for (int i = 0; i < 8; i++)
         {
@@ -578,10 +754,9 @@ public class FineAStarTests
             best = timer.Elapsed < best ? timer.Elapsed : best;
         }
 
-        Assert.Equal(FineSearchStatus.Found, r.Status);
-        // 30 ms is the target on a desktop; allow headroom for shared CI runners and Debug builds.
         Console.WriteLine($"96-block window: {best.TotalMilliseconds:F1} ms, {r.Expanded} expanded, cost {r.Cost:F1}");
-        Assert.True(best.TotalMilliseconds < 100, $"took {best.TotalMilliseconds:F1} ms, expanded {r.Expanded}");
+        Assert.Equal(FineSearchStatus.Found, r.Status);
+        Assert.True(best.TotalMilliseconds < 30, $"took {best.TotalMilliseconds:F1} ms, expanded {r.Expanded}");
     }
 
     [Fact]

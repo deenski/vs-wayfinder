@@ -9,15 +9,22 @@ namespace Wayfinding.Pathing.Search;
 /// <remarks>
 /// <para>The search only proposes moves; the mod never places blocks. Supported moves:</para>
 /// <list type="bullet">
-/// <item><description><b>Step</b> (climb 2, 1 block) and <b>Pillar</b> (climb 3 to <see cref="MaxPillarHeight"/>,
-/// climb − 1 blocks): the blocks are stacked in the player's own column, starting in the feet cell, then the
-/// player steps up one block into the neighbouring column. Any of the 8 directions.</description></item>
+/// <item><description><b>Step</b> (1 block) and <b>Pillar</b> (2 or more blocks), for climbs from
+/// <c>MaxClimb + 1</c> to <see cref="MaxPillarHeight"/>: <c>climb − MaxClimb</c> blocks are stacked in the
+/// player's own column, starting in the feet cell, then the player makes an ordinary <c>+MaxClimb</c> step into
+/// the neighbouring column. With the default <c>MaxClimb = 1</c>: Step is climb 2 with 1 block, Pillar is
+/// climb 3 or 4 with climb − 1 blocks. Any of the 8 directions.</description></item>
 /// <item><description><b>Bridge</b>: across 1 to <see cref="MaxBridgeLength"/> cells of air or lava at the same
 /// feet level, one block under each gap cell, between two standable ends. The 4 straight directions only.</description></item>
 /// </list>
 /// <para>Blocks are never placed into a cell flagged <see cref="Grid.CellFlags.BuildForbidden"/>, into a known
 /// solid, water or hazard cell, or into Unknown terrain. <c>maxBlocks</c> (WF-14) is enforced after the search,
 /// not here.</para>
+/// <para><b>Placed blocks are per move.</b> Each build move is checked against the real grid plus only its own
+/// blocks. A later move in the same search never sees blocks an earlier move placed, and a later walking step
+/// never stands on or bumps into them. That costs nothing on optimal routes today, but it means a route is
+/// not re-validated as a whole: WF-14 (KAN-28) must re-validate the full route with all of its build sites
+/// placed before showing it.</para>
 /// </remarks>
 public sealed record BuildMoveOptions
 {
