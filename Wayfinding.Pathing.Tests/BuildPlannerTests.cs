@@ -88,7 +88,8 @@ public class BuildPlannerTests
 
         // The re-run priced each block at 24 × 4.
         Assert.Equal(17 + 12 * 24 * 4, r.Route.Cost, Eps);
-        AssertValid(grid, r.Route, Model);
+        Assert.True(r.UsedRerun);
+        AssertValid(grid, r.Route, Model, buildPenalty: 24 * 4);
 
         // A smaller budget: one 3-wide bridge against maxBlocks 2 reports exactly 3.
         BudgetedRoute small = BuildPlanner.FindPath(Strip("111LLL111"), new GridPos(1, 2, 1), new GridPos(9, 2, 1), On with { MaxBlocks = 2 }, 64);
@@ -117,6 +118,7 @@ public class BuildPlannerTests
         Assert.Equal(0, rerun.BlocksNeeded);
         Assert.Equal(optimalWalk, rerun.Route.Cost, Eps);
         Assert.InRange(rerun.Route.Cost - 6, 24, 96);
+        Assert.True(rerun.UsedRerun);
         AssertValid(grid, rerun.Route, Model);
 
         // A custom factor too small to change the choice leaves it over budget.
@@ -153,7 +155,7 @@ public class BuildPlannerTests
 
         BudgetedRoute none = BuildPlanner.FindPath(grid, start, top, On, carriedBlocks: 0);
         Assert.Equal(FineSearchStatus.NoPath, none.Route.Status);
-        Assert.Equal(BuildBudgetStatus.NoBuild, none.Budget);
+        Assert.Equal(BuildBudgetStatus.NoRoute, none.Budget);
         Assert.False(On.BuildingAllowed(0));
 
         // Where walking works, the empty inventory just means walking.
@@ -224,5 +226,259 @@ public class BuildPlannerTests
 
         BudgetedRoute tiny = BuildPlanner.FindPath(grid, new GridPos(1, 2, 1), new GridPos(9, 2, 1), On, 64, search with { MaxNodes = 1 });
         Assert.Equal(FineSearchStatus.BudgetExhausted, tiny.Route.Status);
+    }
+
+    // -------------------------------------------------------------- PR #10 review: cancellation in the re-run
+
+    [Fact]
+    public void CancellationDuringTheRerun_ReturnsCancelled_WithNoRoute()
+    {
+        BlockGridSnapshot grid = Strip("1LLLL11LLLL11LLLL1");
+        var start = new GridPos(1, 2, 1);
+        var goal = new GridPos(18, 2, 1);
+
+        // Reads taken by the first search and its whole-route check: cancel shortly after.
+        var probe = new CountingGrid(grid, long.MaxValue, () => { });
+        BudgetedRoute uncancelled = BuildPlanner.FindPath(probe, start, goal, On, 64);
+        Assert.True(uncancelled.Reran);
+        long firstReads = new CountingGrid(grid, long.MaxValue, () => { }) is var c1
+            && BuildPlanner.FindPath(c1, start, goal, On with { MaxBlocks = 64 }, 64) is { } _ ? c1.Reads : 0;
+        Assert.InRange(firstReads, 1, probe.Reads - 1);
+
+        using var cts = new CancellationTokenSource();
+        var counting = new CountingGrid(grid, firstReads + 5, cts.Cancel);
+        BudgetedRoute r = BuildPlanner.FindPath(counting, start, goal, On, 64, null, cts.Token);
+
+        Assert.Equal(FineSearchStatus.Cancelled, r.Route.Status);
+        Assert.False(r.Route.HasRoute);
+        Assert.Equal(BuildBudgetStatus.NoRoute, r.Budget);
+        Assert.Equal(0, r.BlocksNeeded);
+
+        using var pre = new CancellationTokenSource();
+        pre.Cancel();
+        Assert.Equal(FineSearchStatus.Cancelled, BuildPlanner.FindPath(grid, start, goal, On, 64, null, pre.Token).Route.Status);
+    }
+
+    // -------------------------------------------------------------- PR #10 review: carried blocks cap the route
+
+    // A 3-wide lava trench across rows 1..rows, open below: bridging costs 3 blocks, walking round ~2 × rows.
+    private static BlockGridSnapshot WideTrench(int rows)
+    {
+        var lines = new List<string> { "###########" };
+        for (int i = 0; i < rows; i++)
+        {
+            lines.Add("#111LLL111#");
+        }
+
+        lines.Add("#111111111#");
+        lines.Add("###########");
+        return FakeGrid.FromHeightmap(lines.ToArray());
+    }
+
+    [Fact]
+    public void CarriedBlocks_CapTheRoute_WhenRequired()
+    {
+        BlockGridSnapshot grid = WideTrench(50);
+        var start = new GridPos(1, 2, 1);
+        var goal = new GridPos(9, 2, 1);
+
+        // 3 carried: the 3-block bridge is within the cap.
+        BudgetedRoute three = BuildPlanner.FindPath(grid, start, goal, On, carriedBlocks: 3);
+        Assert.Equal((BuildBudgetStatus.WithinBudget, 3, false, 0), (three.Budget, three.BlocksNeeded, three.Reran, three.BlocksShort));
+
+        // 2 carried: the cap is min(8, 2), so the bridge is re-planned at ×4 and the walk round wins.
+        BudgetedRoute two = BuildPlanner.FindPath(grid, start, goal, On, carriedBlocks: 2);
+        Assert.Equal((BuildBudgetStatus.NoBuild, 0, true, true), (two.Budget, two.BlocksNeeded, two.Reran, two.UsedRerun));
+        Assert.Equal(ReferenceSearch.FindPath(grid, start, goal).Cost, two.Route.Cost, Eps);
+
+        // Rule off: the carried count is informational; the bridge stays and the shortfall is reported.
+        BudgetedRoute off = BuildPlanner.FindPath(grid, start, goal, On with { RequireBlocksInInventory = false }, carriedBlocks: 2);
+        Assert.Equal((BuildBudgetStatus.WithinBudget, 3, false, 1), (off.Budget, off.BlocksNeeded, off.Reran, off.BlocksShort));
+
+        Assert.Equal(2, On.BlockCap(2));
+        Assert.Equal(8, On.BlockCap(64));
+        Assert.Equal(8, (On with { RequireBlocksInInventory = false }).BlockCap(0));
+    }
+
+    [Fact]
+    public void ShortOfCarriedBlocks_WithNoAlternative_IsReturnedFlagged()
+    {
+        BlockGridSnapshot grid = Strip("111LLL111");
+        BudgetedRoute r = BuildPlanner.FindPath(grid, new GridPos(1, 2, 1), new GridPos(9, 2, 1), On, carriedBlocks: 2);
+
+        Assert.Equal(FineSearchStatus.Found, r.Route.Status);
+        Assert.Equal(BuildBudgetStatus.ShortOfBlocks, r.Budget);
+        Assert.True(r.Reran);
+        Assert.Equal(3, r.BlocksNeeded);
+        Assert.Equal(1, r.BlocksShort);
+        Assert.False(r.OverBudget);
+
+        // While the rule is on, WithinBudget always means nothing is short.
+        foreach (int carried in new[] { 1, 2, 3, 4, 64 })
+        {
+            BudgetedRoute b = BuildPlanner.FindPath(grid, new GridPos(1, 2, 1), new GridPos(9, 2, 1), On, carried);
+            if (b.Budget == BuildBudgetStatus.WithinBudget)
+            {
+                Assert.Equal(0, b.BlocksShort);
+            }
+        }
+    }
+
+    // -------------------------------------------------------------- PR #10 review: whole-route re-check
+
+    /// <summary>Random 24×24 maps with holes, walls, lava and 9-high pillars (the review's probe family).</summary>
+    private static string[] HoleMap(int seed)
+    {
+        var rng = new Random(seed);
+        var rows = new char[24][];
+        double holes = 0.1 + 0.3 * rng.NextDouble();
+        for (int z = 0; z < 24; z++)
+        {
+            rows[z] = new char[24];
+        }
+
+        for (int z = 0; z < 24; z++)
+        {
+            for (int x = 0; x < 24; x++)
+            {
+                if (x == 0 || z == 0 || x == 23 || z == 23)
+                {
+                    rows[z][x] = '#';
+                    continue;
+                }
+
+                double u = rng.NextDouble();
+                rows[z][x] = u < holes ? '0' : u < holes + 0.06 ? '#' : u < holes + 0.12 ? 'L' : u < holes + 0.16 ? '9' : u < holes + 0.22 ? '3' : '1';
+            }
+        }
+
+        return rows.Select(r => new string(r)).ToArray();
+    }
+
+    private static bool Endpoints(IBlockGrid grid, int seed, out GridPos start, out GridPos goal)
+    {
+        var rng = new Random(seed * 7 + 1);
+        start = goal = default;
+        try
+        {
+            start = Feet(grid, rng.Next(1, 23), rng.Next(1, 23));
+            goal = Feet(grid, rng.Next(1, 23), rng.Next(1, 23));
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Replays the route with every block placed so far (independent of BuildPlanner.FindConflicts).</summary>
+    private static void AssertWalkableWithAllBlocksPlaced(IBlockGrid grid, FineRoute route)
+    {
+        var placed = new List<GridPos>();
+        int site = 0;
+        for (int i = 1; i < route.Steps.Count; i++)
+        {
+            RouteStep s = route.Steps[i];
+            GridPos from = route.Steps[i - 1].Pos;
+            if (site < route.BuildSites.Count && from == route.BuildSites[site].From && s.Kind is MoveKind.Step or MoveKind.Pillar or MoveKind.Bridge)
+            {
+                Assert.DoesNotContain(route.BuildSites[site].Blocks, placed.Contains);
+                placed.AddRange(route.BuildSites[site].Blocks);
+                site++;
+            }
+
+            var view = new OverlayGrid(grid, placed);
+            bool ok = from.X == s.Pos.X && from.Z == s.Pos.Z
+                ? Standability.Classify(view, s.Pos).IsOccupiable()
+                : Model.Evaluate(view, from, s.Pos).IsOk;
+            Assert.True(ok, $"step {i} {from} -> {s.Pos} runs into a placed block");
+        }
+    }
+
+    [Theory]
+    [InlineData(1691, 1.0)]
+    [InlineData(1357, 0.5)]
+    [InlineData(515, 0.0)]
+    [InlineData(668, 0.0)]
+    public void RouteThatStepsIntoItsOwnBlock_IsRepaired(int seed, double penalty)
+    {
+        BlockGridSnapshot grid = FakeGrid.FromHeightmap(HoleMap(seed));
+        Assert.True(Endpoints(grid, seed, out GridPos start, out GridPos goal));
+        BuildPolicy policy = On with { BuildPenalty = penalty, MaxBlocks = 64 };
+
+        // The raw search really does produce a route that walks into one of its own blocks.
+        FineRoute raw = FineAStar.FindPath(grid, start, goal, new FineSearchOptions { Build = policy.ToMoveOptions(64) });
+        Assert.NotEmpty(BuildPlanner.FindConflicts(grid, raw, Model));
+        Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => AssertWalkableWithAllBlocksPlaced(grid, raw)); // steps into, or places onto, an earlier block
+
+        BudgetedRoute r = BuildPlanner.FindPath(grid, start, goal, policy, 64);
+        Assert.True(r.Repairs > 0);
+        Assert.True(r.Route.HasRoute, $"status {r.Route.Status}");
+        Assert.Empty(BuildPlanner.FindConflicts(grid, r.Route, Model));
+        AssertWalkableWithAllBlocksPlaced(grid, r.Route);
+        AssertValid(grid, r.Route, Model, buildPenalty: penalty);
+    }
+
+    [Fact]
+    public void EveryRoute_IsWalkableWithAllItsBlocksPlaced()
+    {
+        foreach (double penalty in new[] { 0.0, 1.0, 24.0 })
+        {
+            for (int seed = 1; seed <= 700; seed++)
+            {
+                BlockGridSnapshot grid = FakeGrid.FromHeightmap(HoleMap(seed));
+                if (!Endpoints(grid, seed, out GridPos start, out GridPos goal))
+                {
+                    continue;
+                }
+
+                BudgetedRoute r = BuildPlanner.FindPath(grid, start, goal, On with { BuildPenalty = penalty, MaxBlocks = 64 }, 64);
+                if (r.Route.HasRoute)
+                {
+                    AssertWalkableWithAllBlocksPlaced(grid, r.Route);
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------- PR #10 review: other tests
+
+    [Fact]
+    public void BuildForbidden_IsHonouredThroughThePlanner()
+    {
+        BlockGridSnapshotBuilder b = FakeGrid.HeightmapBuilder(["#######", "#00022#", "#######"]);
+        b.AddFlags(3, 1, 1, CellFlags.BuildForbidden);
+        BudgetedRoute r = BuildPlanner.FindPath(b.Build(), new GridPos(1, 1, 1), new GridPos(5, 3, 1), On, 64);
+        Assert.Equal(FineSearchStatus.NoPath, r.Route.Status);
+        Assert.Equal(BuildBudgetStatus.NoRoute, r.Budget);
+    }
+
+    [Fact]
+    public void OverBudgetPartialRoute_SharesOneNodeBudget()
+    {
+        BlockGridSnapshot grid = Strip("1LLLL11LLLL11LLLL1");
+        var search = new FineSearchOptions { MaxNodes = 4 };
+        BudgetedRoute r = BuildPlanner.FindPath(grid, new GridPos(1, 2, 1), new GridPos(18, 2, 1), On with { MaxBlocks = 3 }, 64, search);
+
+        Assert.InRange(r.Expanded, 1, 4); // first search, re-run and any repairs together
+        Assert.Equal(FineSearchStatus.BudgetExhausted, r.Route.Status);
+        Assert.True(r.Route.HasRoute);
+        Assert.Equal(r.Route.BlocksNeeded, r.BlocksNeeded);
+        BuildBudgetStatus expected = r.BlocksNeeded == 0 ? BuildBudgetStatus.NoBuild : r.BlocksNeeded <= 3 ? BuildBudgetStatus.WithinBudget : BuildBudgetStatus.OverBudget;
+        Assert.Equal(expected, r.Budget);
+    }
+
+    [Fact]
+    public void PillarCounts_FollowMaxClimb()
+    {
+        // MaxClimb 2: a climb of 4 takes 4 − 2 = 2 blocks.
+        var model = new ClimbCostModel(ClimbCostOptions.Default with { MaxClimb = 2 });
+        BlockGridSnapshot grid = FakeGrid.FromHeightmap(["#######", "#00044#", "#######"]);
+        var search = new FineSearchOptions { Model = model };
+        BudgetedRoute r = BuildPlanner.FindPath(grid, new GridPos(1, 1, 1), new GridPos(5, 5, 1), On, 64, search);
+        Assert.Equal((BuildBudgetStatus.WithinBudget, 2), (r.Budget, r.BlocksNeeded));
+
+        BudgetedRoute over = BuildPlanner.FindPath(grid, new GridPos(1, 1, 1), new GridPos(5, 5, 1), On with { MaxBlocks = 1 }, 64, search);
+        Assert.Equal((BuildBudgetStatus.OverBudget, 2, true), (over.Budget, over.BlocksNeeded, over.Reran));
     }
 }
