@@ -1,6 +1,7 @@
 using Wayfinding.Pathing.Cost;
 using Wayfinding.Pathing.Grid;
 using Wayfinding.Pathing.Search;
+using Wayfinding.Pathing.Testing;
 
 namespace Wayfinding.Pathing.Tests;
 
@@ -21,6 +22,28 @@ internal static class SearchTestSupport
         }
 
         throw new InvalidOperationException($"No occupiable cell in column ({x}, {z}).");
+    }
+
+    /// <summary>Every occupiable feet position of a heightmap built with <see cref="FakeGrid.FromHeightmap"/>.</summary>
+    public static GridPos[] StandableCells(IBlockGrid grid, string[] rows)
+    {
+        var result = new List<GridPos>();
+        for (int z = 0; z < rows.Length; z++)
+        {
+            for (int x = 0; x < rows[z].Length; x++)
+            {
+                if (FakeGrid.TryParseHeight(rows[z][x], out int h) || rows[z][x] == '~')
+                {
+                    var p = new GridPos(x, rows[z][x] == '~' ? 1 : h + 1, z);
+                    if (Standability.Classify(grid, p).IsOccupiable())
+                    {
+                        result.Add(p);
+                    }
+                }
+            }
+        }
+
+        return result.ToArray();
     }
 
     /// <summary>
@@ -64,38 +87,82 @@ internal static class SearchTestSupport
     }
 
     /// <summary>
-    /// Checks a route step by step: walking steps are re-evaluated on the real grid and must be Ok at their recorded
-    /// cost; the step costs add up to <see cref="FineRoute.Cost"/>; build sites match the build steps.
+    /// Checks a route step by step. Walking steps are re-evaluated on the real grid and must be Ok at their
+    /// recorded cost. Build legs (Step, Pillar, Bridge) are re-evaluated on the real grid plus that build site's
+    /// own blocks only: horizontal legs through <see cref="ClimbCostModel.Evaluate"/>, and a pillar's vertical leg
+    /// as an occupiable pillar top at <c>(UphillPenalty + buildPenalty) × blocks</c>. The step costs must add up to
+    /// <see cref="FineRoute.Cost"/>, and build sites must match the build steps.
     /// </summary>
-    public static void AssertValid(IBlockGrid grid, FineRoute route, ClimbCostModel model)
+    public static void AssertValid(IBlockGrid grid, FineRoute route, ClimbCostModel model, double buildPenalty = 24)
     {
         Assert.True(route.HasRoute);
         Assert.Equal(MoveKind.Start, route.Steps[0].Kind);
         double sum = 0;
+        int site = 0;
+        IBlockGrid legGrid = grid;
         for (int i = 1; i < route.Steps.Count; i++)
         {
             RouteStep s = route.Steps[i];
+            GridPos from = route.Steps[i - 1].Pos;
             sum += s.Cost;
             if (s.Kind is MoveKind.Walk or MoveKind.Swim)
             {
-                MoveCost m = model.Evaluate(grid, route.Steps[i - 1].Pos, s.Pos);
-                Assert.True(m.IsOk, $"step {i} {route.Steps[i - 1].Pos} -> {s.Pos} is {m.Verdict}/{m.Reason}");
+                MoveCost m = model.Evaluate(grid, from, s.Pos);
+                Assert.True(m.IsOk, $"step {i} {from} -> {s.Pos} is {m.Verdict}/{m.Reason}");
                 Assert.Equal(m.Cost, s.Cost, Eps);
                 Assert.Equal(m.Swim, s.Kind == MoveKind.Swim);
+                continue;
+            }
+
+            // A build leg. A new site starts at a non-build position or where the previous site ended.
+            bool afterBuild = route.Steps[i - 1].Kind is MoveKind.Step or MoveKind.Pillar or MoveKind.Bridge;
+            if (!afterBuild || (site > 0 && from == route.BuildSites[site - 1].To && site < route.BuildSites.Count && from == route.BuildSites[site].From))
+            {
+                Assert.True(site < route.BuildSites.Count, $"build step {i} has no build site");
+                Assert.Equal(from, route.BuildSites[site].From);
+                legGrid = new OverlayGrid(grid, route.BuildSites[site].Blocks);
+                site++;
+            }
+
+            if (from.X == s.Pos.X && from.Z == s.Pos.Z)
+            {
+                int blocks = s.Pos.Y - from.Y;
+                Assert.Equal(blocks, s.Blocks);
+                Assert.True(Standability.Classify(legGrid, s.Pos, model.Options.HeadroomCells).IsOccupiable(), $"pillar top {s.Pos} is not occupiable");
+                Assert.Equal((model.Options.UphillPenalty + buildPenalty) * blocks, s.Cost, Eps);
+            }
+            else
+            {
+                MoveCost m = model.Evaluate(legGrid, from, s.Pos);
+                Assert.True(m.IsOk, $"build leg {i} {from} -> {s.Pos} is {m.Verdict}/{m.Reason}");
+                Assert.Equal(m.Cost + buildPenalty * s.Blocks, s.Cost, Eps);
             }
         }
 
+        Assert.Equal(route.BuildSites.Count, site);
         Assert.Equal(route.Cost, sum, Eps);
         Assert.Equal(route.Steps.Sum(s => s.Blocks), route.BlocksNeeded);
-        foreach (BuildSite site in route.BuildSites)
+        foreach (BuildSite b in route.BuildSites)
         {
-            foreach (GridPos b in site.Blocks)
+            foreach (GridPos pos in b.Blocks)
             {
-                BlockCell cell = grid.GetCell(b);
-                Assert.True(cell.Class is CellClass.Air or CellClass.Walkable or CellClass.Lava, $"block at {b} goes into {cell.Class}");
+                BlockCell cell = grid.GetCell(pos);
+                Assert.True(cell.Class is CellClass.Air or CellClass.Walkable or CellClass.Lava, $"block at {pos} goes into {cell.Class}");
                 Assert.Equal(CellFlags.None, cell.Flags & CellFlags.BuildForbidden);
             }
         }
+    }
+
+    /// <summary>A grid with some hypothetical blocks placed (they read as Solid).</summary>
+    public sealed class OverlayGrid(IBlockGrid inner, IReadOnlyCollection<GridPos> placed) : IBlockGrid
+    {
+        private readonly HashSet<GridPos> _placed = [.. placed];
+
+        public int Dimension => inner.Dimension;
+
+        public CellClass GetClass(int x, int y, int z) => _placed.Contains(new GridPos(x, y, z)) ? CellClass.Solid : inner.GetClass(x, y, z);
+
+        public BlockCell GetCell(int x, int y, int z) => _placed.Contains(new GridPos(x, y, z)) ? new BlockCell(CellClass.Solid) : inner.GetCell(x, y, z);
     }
 
     /// <summary>A clock that moves forward by a fixed step every time it is read.</summary>
@@ -106,6 +173,43 @@ internal static class SearchTestSupport
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
 
         public override long GetTimestamp() => Interlocked.Add(ref _ticks, step.Ticks);
+    }
+
+    /// <summary>
+    /// A grid wrapper for cross-thread cancellation: after a number of reads it signals <see cref="Reached"/> and
+    /// blocks the search thread until <paramref name="token"/> is cancelled (by another thread), then carries on.
+    /// </summary>
+    public sealed class GateGrid(IBlockGrid inner, long gateAfter, CancellationToken token) : IBlockGrid
+    {
+        private long _reads;
+
+        public ManualResetEventSlim Reached { get; } = new();
+
+        public int SearchThreadId { get; private set; }
+
+        public int Dimension => inner.Dimension;
+
+        public CellClass GetClass(int x, int y, int z)
+        {
+            Tick();
+            return inner.GetClass(x, y, z);
+        }
+
+        public BlockCell GetCell(int x, int y, int z)
+        {
+            Tick();
+            return inner.GetCell(x, y, z);
+        }
+
+        private void Tick()
+        {
+            if (++_reads == gateAfter)
+            {
+                SearchThreadId = Environment.CurrentManagedThreadId;
+                Reached.Set();
+                Assert.True(token.WaitHandle.WaitOne(TimeSpan.FromSeconds(30)), "nobody cancelled the search");
+            }
+        }
     }
 
     /// <summary>A grid wrapper that runs an action after a number of reads (to cancel mid-search).</summary>
