@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.MathTools;
+using Wayfinding.Infra;
 using Wayfinding.Pathing.Grid;
 
 namespace Wayfinding.Snapshot;
@@ -24,7 +25,8 @@ namespace Wayfinding.Snapshot;
 /// A null <c>GetBlockOrNull</c> is unknown, never air.
 /// <c>GetBlockOrNull</c> itself returns null for every negative coordinate and returns air for a
 /// disposed chunk that is still in the map, so the loaded check (null, <c>Disposed</c>, client
-/// <c>LoadedFromServer</c>) is applied first. Negative coordinates trust that loaded check.
+/// <c>LoadedFromServer</c>) is applied first. An in-dimension Y outside <c>[0, 32768)</c> is unknown.
+/// Negative X or Z still trust the loaded check, because the game returns null there before it looks.
 /// </remarks>
 internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
 {
@@ -35,6 +37,7 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
     private readonly MainThreadGuard guard;
     private readonly IChunkReadLog? log;
     private readonly BlockPos pos;
+    private Action<string>? missingMethodLog;
     private IWorldChunk? chunk;
     private bool open;
     private int openChunkX;
@@ -166,8 +169,11 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
 
         int index = (localY * ChunkSize + localZ) * ChunkSize + localX;
         guard.AssertMainThread();
-        int fluidId = LayeredBlockIds.Read(current.Data, index, BlockLayersAccess.Fluid);
-        int solidId = LayeredBlockIds.Read(current.Data, index, BlockLayersAccess.Solid);
+        if (!LayeredBlockIds.TryRead(current.Data, index, BlockLayersAccess.Fluid, MissingMethodLog, out int fluidId)
+            || !LayeredBlockIds.TryRead(current.Data, index, BlockLayersAccess.Solid, MissingMethodLog, out int solidId))
+        {
+            return false;
+        }
 
         Place(x, y, z);
         // Ice sits in the fluid layer and is not a liquid. A solid-layer id wins when both are set.
@@ -203,15 +209,22 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
 
     private bool ConfirmWithGetBlockOrNull(int chunkX, int chunkY, int chunkZ)
     {
-        int x = chunkX * ChunkSize;
-        int y = chunkY * ChunkSize;
-        int z = chunkZ * ChunkSize;
-        if (!DimensionY.TryToInternal(dimension, y, out int internalY))
+        // (uint)chunkY >= Boundary/ChunkSize, including negatives, is the neighbouring dimension.
+        if (!DimensionY.ContainsChunkY(chunkY, ChunkSize))
         {
             return false;
         }
 
-        // GetBlockOrNull returns null for every negative coordinate, before it looks at the chunk.
+        int x = chunkX * ChunkSize;
+        int y = chunkY * ChunkSize;
+        int z = chunkZ * ChunkSize;
+        if (!DimensionY.ContainsInDimensionY(y) || !DimensionY.TryToInternal(dimension, y, out int internalY))
+        {
+            return false;
+        }
+
+        // GetBlockOrNull returns null for every negative X or Z, before it looks at the chunk.
+        // Y is already inside [0, Boundary), so a negative internal Y here is a negative dimension.
         if ((x | internalY | z) < 0)
         {
             return true;
@@ -220,6 +233,11 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
         guard.AssertMainThread();
         return blocks.GetBlockOrNull(x, internalY, z, BlockLayersAccess.Solid) != null;
     }
+
+    private Action<string> MissingMethodLog => missingMethodLog ??= message =>
+    {
+        world.Api.ModLoader.GetModSystem<WayfindingModSystem>().Log.Log(LogLevel.Error, message);
+    };
 
     private bool TryReadSample(int fluidId, int blockId, out CellSample sample)
     {

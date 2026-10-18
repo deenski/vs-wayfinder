@@ -21,6 +21,11 @@ public sealed class SnapshotBuilderSystem : ModSystem
     /// <summary>Game-tick interval. The listener runs on the main thread.</summary>
     public const int TickIntervalMs = 20;
 
+    /// <summary>
+    /// Environment variable that turns on the 4×4 spawn smoke read. Unset or any other value leaves it off.
+    /// </summary>
+    public const string SmokeEnvironmentVariable = "WAYFINDING_SNAPSHOT_SMOKE";
+
     private readonly SnapshotStatsSink stats = new();
     private ICoreAPI? api;
     private MainThreadGuard? guard;
@@ -146,7 +151,7 @@ public sealed class SnapshotBuilderSystem : ModSystem
 
     private void MaybeSmoke()
     {
-        if (smokeStarted || job != null || api?.World?.BlockAccessor == null || guard == null)
+        if (!SmokeEnabled || smokeStarted || job != null || api?.World?.BlockAccessor == null || guard == null)
         {
             return;
         }
@@ -165,6 +170,16 @@ public sealed class SnapshotBuilderSystem : ModSystem
         smokeStarted = true;
         BlockPos spawn = api.World.DefaultSpawnPosition.AsBlockPos;
         Begin(new GridPos(spawn.X, spawn.Y, spawn.Z), 4, 4, 4, spawn.dimension);
+    }
+
+    private static bool SmokeEnabled
+    {
+        get
+        {
+            string? value = Environment.GetEnvironmentVariable(SmokeEnvironmentVariable);
+            return string.Equals(value, "1", StringComparison.Ordinal)
+                || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     private sealed class Job(BlockGridSnapshotBuilder builder, TimeSlicedSnapshotFill fill, GameTerrainSlice terrain)

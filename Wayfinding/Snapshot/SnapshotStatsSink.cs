@@ -11,7 +11,7 @@ namespace Wayfinding.Snapshot;
 /// </remarks>
 public sealed class SnapshotStatsSink : ISnapshotFrameStats
 {
-    /// <summary>Optional next sink. Not used until KAN-18 is on main.</summary>
+    /// <summary>Optional next sink. The builder sets this to <c>PlanMetrics.RecordSnapshotMs</c>.</summary>
     public ISnapshotFrameStats? Forward { get; set; }
 
     /// <summary>Milliseconds of the most recent slice, or null before the first one.</summary>
