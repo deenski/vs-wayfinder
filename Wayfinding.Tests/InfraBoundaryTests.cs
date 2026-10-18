@@ -56,6 +56,32 @@ public class InfraBoundaryTests
         Assert.DoesNotContain("BeginSubCommand(\"team\")", commands, StringComparison.Ordinal);
         Assert.Contains("if (Gate.IsEnabled(Feature.MapLayer))", mod, StringComparison.Ordinal);
         Assert.Contains("RegisterMapLayer<DebugMapLayer>", mod, StringComparison.Ordinal);
+        Assert.Contains("TeammateTetherCommands.Register(nav, mod)", commands, StringComparison.Ordinal);
+        Assert.Contains("DimensionArrivalCommands.Register(nav, mod)", commands, StringComparison.Ordinal);
+        Assert.Contains("RegisterTeammateTether(api)", mod, StringComparison.Ordinal);
+        Assert.Contains("RegisterDimensionAndArrival(api)", mod, StringComparison.Ordinal);
+        Assert.Contains("DisposeTeammateTether()", mod, StringComparison.Ordinal);
+        Assert.Contains("DisposeDimensionAndArrival()", mod, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Kan22_and_kan23_stubs_do_not_open_a_nav_root()
+    {
+        var commandsDir = Path.Combine(RepoRoot(), "Wayfinding", "Commands");
+        foreach (var name in new[] { "TeammateTetherCommands.cs", "DimensionArrivalCommands.cs" })
+        {
+            var text = File.ReadAllText(Path.Combine(commandsDir, name));
+            Assert.DoesNotContain(".GetOrCreate(", text, StringComparison.Ordinal);
+            Assert.DoesNotContain(".Create(", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("BeginSubCommand(", text, StringComparison.Ordinal);
+        }
+
+        foreach (var name in new[] { "WayfindingModSystem.TeammateTether.cs", "WayfindingModSystem.DimensionArrival.cs" })
+        {
+            var text = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", name));
+            Assert.DoesNotContain("ChatCommands", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("RegisterMapLayer", text, StringComparison.Ordinal);
+        }
     }
 
     [Fact]

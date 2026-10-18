@@ -7,7 +7,7 @@ using Wayfinding.Infra;
 
 namespace Wayfinding;
 
-public class WayfindingModSystem : ModSystem
+public partial class WayfindingModSystem : ModSystem
 {
     private ICoreClientAPI? capi;
 
@@ -44,6 +44,8 @@ public class WayfindingModSystem : ModSystem
 
         api.Event.LevelFinalize += OnLevelFinalize;
         NavCommands.Register(api, this);
+        RegisterTeammateTether(api);
+        RegisterDimensionAndArrival(api);
     }
 
     public override void StartServerSide(ICoreServerAPI api)
@@ -71,5 +73,12 @@ public class WayfindingModSystem : ModSystem
         }
 
         Gate.Notify(new GateNotice(capi));
+    }
+
+    public override void Dispose()
+    {
+        DisposeTeammateTether();
+        DisposeDimensionAndArrival();
+        base.Dispose();
     }
 }

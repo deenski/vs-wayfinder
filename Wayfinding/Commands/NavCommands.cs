@@ -9,9 +9,11 @@ public static class NavCommands
 {
     public static void Register(ICoreClientAPI capi, WayfindingModSystem mod)
     {
-        // One root. GetOrCreate so a later mod system can add subcommands (KAN-21
-        // share/team) without Create throwing when this root already exists.
-        capi.ChatCommands
+        // One .nav root. GetOrCreate so a later registrar can add subcommands
+        // without Create throwing when this root already exists. KAN-21 adds
+        // share and team on its own call. KAN-22 and KAN-23 extend this same
+        // instance through the stubs below.
+        IChatCommand nav = capi.ChatCommands
             .GetOrCreate("nav")
             .WithDescription("Wayfinding")
             .RequiresPrivilege(Privilege.chat)
@@ -48,6 +50,9 @@ public static class NavCommands
                     .HandleWith(_ => ArmThrow())
                 .EndSubCommand()
             .EndSubCommand();
+
+        TeammateTetherCommands.Register(nav, mod);
+        DimensionArrivalCommands.Register(nav, mod);
     }
 
     private static TextCommandResult OnDebug()
