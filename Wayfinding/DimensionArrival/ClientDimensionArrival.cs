@@ -28,48 +28,7 @@ public sealed class ClientPlayerPositionSource : IPlayerPositionSource
             return PlayerFix.Unavailable;
         }
 
-        return PlayerFix.Capture(true, true, pos.X, pos.Y, pos.InternalY, pos.Z, pos.Dimension);
-    }
-}
-
-/// <summary>
-/// Same allowMap rule as <see cref="ClientNavSession"/>, and closed until the version gate has run.
-/// </summary>
-public sealed class ClientNavigationPermission : INavigationPermission
-{
-    private readonly ICoreClientAPI api;
-    private readonly VersionGate gate;
-
-    public ClientNavigationPermission(ICoreClientAPI api, VersionGate gate)
-    {
-        this.api = api ?? throw new ArgumentNullException(nameof(api));
-        this.gate = gate ?? throw new ArgumentNullException(nameof(gate));
-    }
-
-    public bool AllowsNavigation
-    {
-        get
-        {
-            if (!gate.IsEvaluated)
-            {
-                return false;
-            }
-
-            var world = api.World;
-            if (world?.Config == null)
-            {
-                return false;
-            }
-
-            var allowed = world.Config.GetBool("allowMap", true);
-            if (!allowed)
-            {
-                var privileges = world.Player?.Privileges;
-                allowed = privileges != null && Array.IndexOf(privileges, "allowMap") >= 0;
-            }
-
-            return allowed;
-        }
+        return PlayerFix.At(pos.X, pos.Y, pos.Z, pos.Dimension);
     }
 }
 
@@ -223,7 +182,7 @@ public sealed class ClientDimensionArrivalEvents : IDimensionArrivalEvents
 
     private void OnSpawn(IClientPlayer player)
     {
-        if (player == null || !IsOwn(player.PlayerUID))
+        if (string.IsNullOrEmpty(player?.PlayerUID))
         {
             return;
         }

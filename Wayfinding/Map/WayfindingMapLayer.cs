@@ -49,6 +49,7 @@ public sealed class WayfindingMapLayer : MapLayer
     NavTargets? watched;
     bool waypointDrawDisabled;
     int uploadedMeters = -1;
+    string? uploadedBadge;
     long uploadedAtMs;
     bool disposed;
     bool armThrow;
@@ -144,15 +145,14 @@ public sealed class WayfindingMapLayer : MapLayer
             return;
         }
 
-        string? badge = DimensionPresentation.Label(mod.RouteDimension);
-        if (badge != null)
+        MapDraw draw = DimensionPresentation.For(mod.RouteDimension);
+        if (draw.Badge != null)
         {
-            labelText = badge;
-            hoverText.AppendLine(badge);
+            hoverText.AppendLine(draw.Badge);
             return;
         }
 
-        if (!DimensionPresentation.DrawRoute(mod.RouteDimension))
+        if (!draw.Line)
         {
             labelText = null;
             return;
@@ -278,12 +278,12 @@ public sealed class WayfindingMapLayer : MapLayer
             return;
         }
 
-        if (!DimensionPresentation.DrawRoute(mod.RouteDimension))
+        MapDraw draw = DimensionPresentation.For(mod.RouteDimension);
+        if (!draw.Line)
         {
-            string? badge = DimensionPresentation.Label(mod.RouteDimension);
-            if (badge != null)
+            if (draw.Badge != null)
             {
-                DrawBadge(map, badge);
+                DrawBadge(map, draw.Badge);
             }
 
             return;
@@ -294,6 +294,7 @@ public sealed class WayfindingMapLayer : MapLayer
             labelText = null;
             labelMeters = -1;
             uploadedMeters = -1;
+            uploadedBadge = null;
         }
 
         if (!TryResolve(out double targetX, out double targetY, out double targetZ))
@@ -893,12 +894,16 @@ public sealed class WayfindingMapLayer : MapLayer
             return;
         }
 
-        if (labelText != text || labelTexture == null || labelTexture.TextureId == 0)
+        // shortcut: the texture is a game API, so this only tracks the uploaded text. Hover must not write that field.
+        if (!string.Equals(uploadedBadge, text, StringComparison.Ordinal)
+            || labelTexture == null
+            || labelTexture.TextureId == 0)
         {
             labelText = text;
             labelMeters = -1;
             labelFont ??= CairoFont.WhiteDetailText();
-            capi.Gui.TextTexture.GenOrUpdateTextTexture(labelText, labelFont, ref labelTexture);
+            capi.Gui.TextTexture.GenOrUpdateTextTexture(text, labelFont, ref labelTexture);
+            uploadedBadge = text;
             uploadedMeters = -1;
         }
 

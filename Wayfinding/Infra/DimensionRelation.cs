@@ -15,22 +15,16 @@ public enum DimensionRelation
     Unconfirmed = 2,
 }
 
-public interface IDimensionDetector
-{
-    /// <summary>
-    /// <paramref name="targetDimension"/> is the stamped coordinate dimension,
-    /// or the dimension decoded from a waypoint's position Y. Null when that
-    /// dimension is not known yet.
-    /// </summary>
-    DimensionRelation Evaluate(int? playerDimension, NavTarget target, int? targetDimension);
-}
-
 /// <summary>
 /// Dimension relation for our own navigation target. Player targets stay
 /// unconfirmed until teammate positions exist.
 /// </summary>
-public sealed class OwnTargetDimensionDetector : IDimensionDetector
+public sealed class OwnTargetDimensionDetector
 {
+    /// <param name="targetDimension">
+    /// Stamped coordinate dimension, or the dimension decoded from a waypoint's
+    /// position Y. Null when that dimension is not known yet.
+    /// </param>
     public DimensionRelation Evaluate(int? playerDimension, NavTarget target, int? targetDimension)
     {
         ArgumentNullException.ThrowIfNull(target);

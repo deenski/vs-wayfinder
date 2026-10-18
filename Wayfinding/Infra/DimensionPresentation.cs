@@ -1,20 +1,38 @@
 namespace Wayfinding.Infra;
 
 /// <summary>
-/// What the existing map label should show for a dimension relation.
-/// The map layer already draws that label; this only chooses the text and whether a line is allowed.
+/// What one map frame should draw for a dimension relation.
+/// The map layer already has the line and the label; this only chooses which.
 /// </summary>
+public readonly struct MapDraw
+{
+    public MapDraw(bool line, string? badge)
+    {
+        Line = line;
+        Badge = badge;
+    }
+
+    public bool Line { get; }
+
+    public string? Badge { get; }
+}
+
 public static class DimensionPresentation
 {
     public const string DifferentBadge = "different dimension";
 
-    public static bool DrawRoute(DimensionRelation relation)
+    public static MapDraw For(DimensionRelation relation)
     {
-        return relation == DimensionRelation.Same;
-    }
+        if (relation == DimensionRelation.Same)
+        {
+            return new MapDraw(true, null);
+        }
 
-    public static string? Label(DimensionRelation relation)
-    {
-        return relation == DimensionRelation.Different ? DifferentBadge : null;
+        if (relation == DimensionRelation.Different)
+        {
+            return new MapDraw(false, DifferentBadge);
+        }
+
+        return new MapDraw(false, null);
     }
 }

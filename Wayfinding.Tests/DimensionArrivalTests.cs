@@ -299,7 +299,7 @@ public class DimensionArrivalTests
         harness.Waypoints.Points[HomeId] = new WaypointPosition(0, 10, 0);
         harness.Positions.Current = PlayerFix.At(100, 10, 0, 0);
         harness.Session.Tick();
-        harness.Permission.AllowsNavigation = false;
+        harness.Targets.SetMapAllowed(false);
         harness.Positions.Current = PlayerFix.At(0, 10, 0, 0);
         harness.Session.Tick();
 
@@ -335,15 +335,34 @@ public class DimensionArrivalTests
     }
 
     [Fact]
-    public void Different_dimension_is_a_label_and_not_a_line_and_unconfirmed_draws_nothing()
+    public void Unconfirmed_draws_nothing_different_draws_the_badge_and_same_draws_the_line()
     {
-        Assert.True(DimensionPresentation.DrawRoute(DimensionRelation.Same));
-        Assert.False(DimensionPresentation.DrawRoute(DimensionRelation.Different));
-        Assert.False(DimensionPresentation.DrawRoute(DimensionRelation.Unconfirmed));
-        Assert.Equal(DimensionPresentation.DifferentBadge, DimensionPresentation.Label(DimensionRelation.Different));
-        Assert.Equal("different dimension", DimensionPresentation.DifferentBadge);
-        Assert.Null(DimensionPresentation.Label(DimensionRelation.Same));
-        Assert.Null(DimensionPresentation.Label(DimensionRelation.Unconfirmed));
+        MapDraw hidden = DimensionPresentation.For(DimensionRelation.Unconfirmed);
+        Assert.False(hidden.Line);
+        Assert.Null(hidden.Badge);
+
+        MapDraw other = DimensionPresentation.For(DimensionRelation.Different);
+        Assert.False(other.Line);
+        Assert.Equal("different dimension", other.Badge);
+
+        MapDraw same = DimensionPresentation.For(DimensionRelation.Same);
+        Assert.True(same.Line);
+        Assert.Null(same.Badge);
+    }
+
+    [Fact]
+    public void Debug_sample_stamps_the_player_dimension()
+    {
+        var commands = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "Commands", "NavCommands.cs"));
+        Assert.Contains("SetCoordinate(coordinate, Spawn(mod), pos.Dimension)", commands, StringComparison.Ordinal);
+
+        var bare = NavTarget.At(new AbsoluteCoord(1, 2, 3), null);
+        var stamped = NavTarget.At(new AbsoluteCoord(1, 2, 3), 0);
+        var detector = new OwnTargetDimensionDetector();
+        Assert.Equal(DimensionRelation.Unconfirmed, detector.Evaluate(0, bare, bare.Dimension));
+        Assert.False(DimensionPresentation.For(DimensionRelation.Unconfirmed).Line);
+        Assert.Equal(DimensionRelation.Same, detector.Evaluate(0, stamped, stamped.Dimension));
+        Assert.True(DimensionPresentation.For(DimensionRelation.Same).Line);
     }
 
     [Fact]
@@ -364,8 +383,8 @@ public class DimensionArrivalTests
     {
         var layer = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "Map", "WayfindingMapLayer.cs"));
 
-        Assert.Contains("DimensionPresentation.DrawRoute(mod.RouteDimension)", layer, StringComparison.Ordinal);
-        Assert.Contains("DimensionPresentation.Label(mod.RouteDimension)", layer, StringComparison.Ordinal);
+        Assert.Contains("DimensionPresentation.For(mod.RouteDimension)", layer, StringComparison.Ordinal);
+        Assert.DoesNotContain("labelText = badge", layer, StringComparison.Ordinal);
         Assert.Contains("mod.ReplanRequested += OnForcedReplan", layer, StringComparison.Ordinal);
         Assert.Contains("mod.ReplanRequested -= OnForcedReplan", layer, StringComparison.Ordinal);
         Assert.Contains("straight = null", layer, StringComparison.Ordinal);
@@ -441,12 +460,8 @@ public class DimensionArrivalTests
                 Targets,
                 Positions,
                 () => Clock.ElapsedMilliseconds,
-                new OwnTargetDimensionDetector(),
-                new TeleportDetector(),
-                new ArrivalDetector(),
                 Waypoints,
                 Events,
-                Permission,
                 Notice,
                 Log,
                 () => "local-player");
@@ -464,8 +479,6 @@ public class DimensionArrivalTests
         public ScriptedWaypoints Waypoints { get; } = new();
 
         public FakeDimensionEvents Events { get; } = new();
-
-        public TogglePermission Permission { get; } = new();
 
         public ArrivalCounter Notice { get; } = new();
 
@@ -501,11 +514,6 @@ public class DimensionArrivalTests
         {
             return Points.TryGetValue(waypointId, out position);
         }
-    }
-
-    private sealed class TogglePermission : INavigationPermission
-    {
-        public bool AllowsNavigation { get; set; } = true;
     }
 
     private sealed class ArrivalCounter : IArrivalNotice

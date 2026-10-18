@@ -9,7 +9,6 @@ public partial class WayfindingModSystem
     /// vanilla remote-player tracking, then a greyed last-known marker. Subscribe
     /// from <paramref name="api"/> here. Do not register a map layer or a team
     /// service; those registrations belong to other tickets.
-    /// The position source should sit behind an interface so Phase 2b can replace it.
     /// </summary>
     private void RegisterTeammateTether(ICoreClientAPI api)
     {

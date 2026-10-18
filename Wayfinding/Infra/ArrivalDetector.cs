@@ -73,22 +73,12 @@ public readonly struct TargetPlace
     }
 }
 
-public interface IArrivalDetector
-{
-    /// <summary>
-    /// Forgets the out-of-range sample. The next in-range sample does not arrive.
-    /// </summary>
-    void Reset();
-
-    /// <summary>
-    /// True once, when the player is in arrival range of our own waypoint or
-    /// coordinate and at least one out-of-range sample has been seen since the
-    /// target was set or <see cref="Reset"/>. Player targets never arrive.
-    /// </summary>
-    bool Observe(PlayerFix player, NavTarget target, TargetPlace place);
-}
-
-public sealed class ArrivalDetector : IArrivalDetector
+/// <summary>
+/// True once from <see cref="Observe"/>, when the player is in arrival range of
+/// our own waypoint or coordinate and at least one out-of-range sample has been
+/// seen since the target was set or <see cref="Reset"/>. Player targets never arrive.
+/// </summary>
+public sealed class ArrivalDetector
 {
     private bool armed;
     private bool tracking;

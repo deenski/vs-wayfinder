@@ -48,15 +48,6 @@ public interface IWaypointPositionSource
     bool TryGet(Guid waypointId, out WaypointPosition position);
 }
 
-/// <summary>
-/// False when the version gate has not passed or the client map is not allowed.
-/// Callers fail closed: no arrival and an unconfirmed dimension.
-/// </summary>
-public interface INavigationPermission
-{
-    bool AllowsNavigation { get; }
-}
-
 public interface IArrivalNotice
 {
     void Arrived();

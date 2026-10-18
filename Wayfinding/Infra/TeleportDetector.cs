@@ -9,21 +9,14 @@ public static class TeleportLimits
     public const double Blocks = 64;
 }
 
-public interface ITeleportDetector
-{
-    /// <summary>
-    /// Returns true when this sample is a horizontal jump of more than
-    /// <see cref="TeleportLimits.Blocks"/> blocks since the previous sample.
-    /// The first sample, and the first sample after <see cref="ResetBaseline"/>,
-    /// establish a baseline and are never a jump. Vertical movement is ignored.
-    /// Unavailable samples are ignored and do not move the baseline.
-    /// </summary>
-    bool Observe(PlayerFix sample);
-
-    void ResetBaseline();
-}
-
-public sealed class TeleportDetector : ITeleportDetector
+/// <summary>
+/// Returns true when this sample is a horizontal jump of more than
+/// <see cref="TeleportLimits.Blocks"/> blocks since the previous sample.
+/// The first sample, and the first sample after <see cref="ResetBaseline"/>,
+/// establish a baseline and are never a jump. Vertical movement is ignored.
+/// Unavailable samples are ignored and do not move the baseline.
+/// </summary>
+public sealed class TeleportDetector
 {
     private bool hasBaseline;
     private double baselineX;

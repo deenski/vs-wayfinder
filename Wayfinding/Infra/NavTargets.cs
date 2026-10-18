@@ -202,7 +202,7 @@ public sealed class NavTargets
         return NavReply.Success("Navigating to player \"" + name + "\".");
     }
 
-public NavReply Coord(string? text, SpawnOrigin spawn, int mapHeight, int? dimension = null)
+    public NavReply Coord(string? text, SpawnOrigin spawn, int mapHeight, int? dimension = null)
     {
         if (!MapAllowed)
         {

@@ -39,12 +39,8 @@ public partial class WayfindingModSystem
             navigation.Targets,
             new ClientPlayerPositionSource(api),
             () => api.ElapsedMilliseconds,
-            new OwnTargetDimensionDetector(),
-            new TeleportDetector(),
-            new ArrivalDetector(),
             new ClientWaypointPositionSource(api, Gate),
             new ClientDimensionArrivalEvents(api),
-            new ClientNavigationPermission(api, Gate),
             new ClientArrivalNotice(api),
             Log,
             () => api.World?.Player?.PlayerUID);

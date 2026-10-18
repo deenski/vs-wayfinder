@@ -14,12 +14,11 @@ public sealed class DimensionArrivalSession : IDisposable
     private readonly NavTargets targets;
     private readonly IPlayerPositionSource positions;
     private readonly Func<long> elapsedMilliseconds;
-    private readonly IDimensionDetector dimensions;
-    private readonly ITeleportDetector teleports;
-    private readonly IArrivalDetector arrival;
+    private readonly OwnTargetDimensionDetector dimensions = new();
+    private readonly TeleportDetector teleports = new();
+    private readonly ArrivalDetector arrival = new();
     private readonly IWaypointPositionSource waypoints;
     private readonly IDimensionArrivalEvents events;
-    private readonly INavigationPermission permission;
     private readonly IArrivalNotice notice;
     private readonly IWayfindingLog log;
     private readonly Func<string?> ownPlayerUid;
@@ -29,12 +28,8 @@ public sealed class DimensionArrivalSession : IDisposable
         NavTargets targets,
         IPlayerPositionSource positions,
         Func<long> elapsedMilliseconds,
-        IDimensionDetector dimensions,
-        ITeleportDetector teleports,
-        IArrivalDetector arrival,
         IWaypointPositionSource waypoints,
         IDimensionArrivalEvents events,
-        INavigationPermission permission,
         IArrivalNotice notice,
         IWayfindingLog log,
         Func<string?> ownPlayerUid)
@@ -42,12 +37,8 @@ public sealed class DimensionArrivalSession : IDisposable
         this.targets = targets ?? throw new ArgumentNullException(nameof(targets));
         this.positions = positions ?? throw new ArgumentNullException(nameof(positions));
         this.elapsedMilliseconds = elapsedMilliseconds ?? throw new ArgumentNullException(nameof(elapsedMilliseconds));
-        this.dimensions = dimensions ?? throw new ArgumentNullException(nameof(dimensions));
-        this.teleports = teleports ?? throw new ArgumentNullException(nameof(teleports));
-        this.arrival = arrival ?? throw new ArgumentNullException(nameof(arrival));
         this.waypoints = waypoints ?? throw new ArgumentNullException(nameof(waypoints));
         this.events = events ?? throw new ArgumentNullException(nameof(events));
-        this.permission = permission ?? throw new ArgumentNullException(nameof(permission));
         this.notice = notice ?? throw new ArgumentNullException(nameof(notice));
         this.log = log ?? throw new ArgumentNullException(nameof(log));
         this.ownPlayerUid = ownPlayerUid ?? throw new ArgumentNullException(nameof(ownPlayerUid));
@@ -58,8 +49,6 @@ public sealed class DimensionArrivalSession : IDisposable
     /// only while it is <see cref="DimensionRelation.Same"/>.
     /// </summary>
     public DimensionRelation Current { get; private set; } = DimensionRelation.Unconfirmed;
-
-    public long LastElapsedMilliseconds { get; private set; }
 
     public event Action<ReplanRequest>? ReplanRequested;
 
@@ -90,8 +79,7 @@ public sealed class DimensionArrivalSession : IDisposable
 
     public void Tick()
     {
-        LastElapsedMilliseconds = elapsedMilliseconds();
-        if (!permission.AllowsNavigation)
+        if (!targets.MapAllowed)
         {
             Current = DimensionRelation.Unconfirmed;
             teleports.ResetBaseline();
@@ -154,9 +142,7 @@ public sealed class DimensionArrivalSession : IDisposable
 
     private void Raise(ReplanReason reason)
     {
-        var elapsed = elapsedMilliseconds();
-        LastElapsedMilliseconds = elapsed;
-        ReplanRequested?.Invoke(new ReplanRequest(reason, elapsed));
+        ReplanRequested?.Invoke(new ReplanRequest(reason, elapsedMilliseconds()));
     }
 
     private TargetPlace PlaceFor(NavTarget target)
