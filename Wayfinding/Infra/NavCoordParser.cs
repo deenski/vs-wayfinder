@@ -61,14 +61,31 @@ public readonly struct ParsedCoord
 
 /// <summary>
 /// Parses <c>.nav coord</c> text. X and Z are spawn-relative, the way the map
-/// and <c>/waypoint list</c> show them. Y, when present, is absolute height.
+/// and <c>/waypoint list</c> show them. Y, when present, is absolute height
+/// and must fall inside the world height passed in by the caller.
 /// </summary>
 public static class NavCoordParser
 {
     public const string Usage =
         "Use .nav coord <x> <z> or .nav coord <x> <y> <z>. X and Z are spawn-relative, the way the map shows them. Y is absolute height.";
 
-    public static bool TryParse(string? text, SpawnOrigin spawn, out ParsedCoord coord, out string error)
+    public const string CoordinateOverflowMessage =
+        "That X or Z doesn't fit in a block coordinate.";
+
+    public const string WorldHeightUnknownMessage = "The world height isn't known yet.";
+
+    /// <summary>
+    /// Y is outside <c>0 .. mapHeight-1</c>. <paramref name="mapHeight"/> is the
+    /// world's map height in blocks (<c>IBlockAccessor.MapSizeY</c>).
+    /// </summary>
+    public static string HeightOutsideWorldMessage(int y, int mapHeight)
+    {
+        return "Y " + y.ToString(CultureInfo.InvariantCulture)
+            + " is outside the world. Height runs from 0 to "
+            + (mapHeight - 1).ToString(CultureInfo.InvariantCulture) + ".";
+    }
+
+    public static bool TryParse(string? text, SpawnOrigin spawn, int mapHeight, out ParsedCoord coord, out string error)
     {
         coord = default;
         if (!TryTokens(text, out var tokens, out error))
@@ -96,9 +113,15 @@ public static class NavCoordParser
         int? displayY = tokens.Count == 3 ? numbers[1] : null;
         var displayZ = tokens.Count == 3 ? numbers[2] : numbers[1];
 
+        if (displayY is int y && !IsInsideWorldHeight(y, mapHeight))
+        {
+            error = mapHeight > 0 ? HeightOutsideWorldMessage(y, mapHeight) : WorldHeightUnknownMessage;
+            return false;
+        }
+
         if (!TryAdd(spawn.X, displayX, out var absoluteX) || !TryAdd(spawn.Z, displayZ, out var absoluteZ))
         {
-            error = "That coordinate is outside the world.";
+            error = CoordinateOverflowMessage;
             return false;
         }
 
@@ -148,6 +171,11 @@ public static class NavCoordParser
 
         error = "";
         return true;
+    }
+
+    private static bool IsInsideWorldHeight(int y, int mapHeight)
+    {
+        return mapHeight > 0 && y >= 0 && y < mapHeight;
     }
 
     private static bool TryAdd(int spawn, int relative, out int absolute)

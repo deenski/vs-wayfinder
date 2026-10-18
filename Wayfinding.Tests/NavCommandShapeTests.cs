@@ -39,6 +39,9 @@ public class NavCommandShapeTests
             "Y, when given, is absolute height and is not offset by spawn.",
             commands,
             StringComparison.Ordinal);
+        Assert.Contains("BlockAccessor.MapSizeY", commands, StringComparison.Ordinal);
+        Assert.DoesNotContain("one constructor argument", commands, StringComparison.Ordinal);
+        Assert.Contains("server-side name-to-uid lookup", commands, StringComparison.Ordinal);
 
         var model = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "Infra", "NavTargets.cs"));
         var playerStart = model.IndexOf("public NavReply Player", StringComparison.Ordinal);
