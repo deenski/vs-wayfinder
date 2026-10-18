@@ -14,6 +14,8 @@ public partial class WayfindingModSystem : ModSystem
     private ICoreClientAPI? capi;
     private TeamService? _teams;
     private ClientNavSession? navigation;
+    private WayfindingHud? hud;
+    private static readonly JourneyMapNotice journeyMapNotice = new();
 
     public ITeamService? Teams => _teams;
 
@@ -35,6 +37,8 @@ public partial class WayfindingModSystem : ModSystem
     public WayfindingMapLayer? MapLayer { get; private set; }
 
     public ICoreClientAPI? Client => capi;
+
+    public WayfindingClientConfig Config { get; private set; } = new();
 
     public bool IsEnabled(Feature feature)
     {
@@ -64,7 +68,8 @@ public partial class WayfindingModSystem : ModSystem
     public override void StartClientSide(ICoreClientAPI api)
     {
         capi = api;
-        ApplyClientConfig(ClientConfigStore.Load(api, Log));
+        Config = ClientConfigStore.Load(api, Log);
+        ApplyClientConfig(Config);
         RunGate();
         if (Gate.IsEnabled(Feature.MapLayer))
         {
@@ -82,6 +87,8 @@ public partial class WayfindingModSystem : ModSystem
         navigation = NavTargetCommands.Register(api, this, _teams);
         RegisterTeammateTether(api);
         RegisterDimensionAndArrival(api);
+        hud = new WayfindingHud(api, this);
+        api.Event.RegisterRenderer(hud, EnumRenderStage.Ortho, "wayfinding-hud");
     }
 
     public override void StartServerSide(ICoreServerAPI api)
@@ -116,6 +123,10 @@ public partial class WayfindingModSystem : ModSystem
 
         Gate.Notify(new GateNotice(capi));
         navigation?.OnLevelFinalize();
+        if (journeyMapNotice.TryFire(capi.ModLoader.IsModEnabled(JourneyMapNotice.ModId)))
+        {
+            capi.TriggerIngameError(this, "wayfinding-journeymap", JourneyMapNotice.Message);
+        }
     }
 
     private void OnLeaveWorld()
@@ -129,6 +140,12 @@ public partial class WayfindingModSystem : ModSystem
         {
             capi.Event.LevelFinalize -= OnLevelFinalize;
             capi.Event.LeaveWorld -= OnLeaveWorld;
+            if (hud is not null)
+            {
+                capi.Event.UnregisterRenderer(hud, EnumRenderStage.Ortho);
+                hud.Dispose();
+                hud = null;
+            }
         }
 
         // Arrival (KAN-23) before the tether (KAN-22). The tether reads TeamService

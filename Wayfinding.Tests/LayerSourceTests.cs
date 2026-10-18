@@ -38,11 +38,11 @@ public class LayerSourceTests
     public void Segment_styles_name_every_kind_and_default_to_unknown()
     {
         var source = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "Route", "SegmentStyles.cs"));
-        Assert.Contains("SegmentKind.Walk => Known", source, StringComparison.Ordinal);
-        Assert.Contains("SegmentKind.Swim => Known", source, StringComparison.Ordinal);
-        Assert.Contains("SegmentKind.Build => Build", source, StringComparison.Ordinal);
-        Assert.Contains("SegmentKind.Unknown => Unknown", source, StringComparison.Ordinal);
-        Assert.Contains("_ => Unknown", source, StringComparison.Ordinal);
+        Assert.Contains("SegmentKind.Walk => known", source, StringComparison.Ordinal);
+        Assert.Contains("SegmentKind.Swim => known", source, StringComparison.Ordinal);
+        Assert.Contains("SegmentKind.Build => build", source, StringComparison.Ordinal);
+        Assert.Contains("SegmentKind.Unknown => unknown", source, StringComparison.Ordinal);
+        Assert.Contains("_ => unknown", source, StringComparison.Ordinal);
     }
 
     private static string RepoRoot()

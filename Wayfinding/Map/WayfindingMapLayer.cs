@@ -29,7 +29,6 @@ public sealed class WayfindingMapLayer : MapLayer
     const int MaxDashes = 64;
     const float LabelOffset = 16f;
 
-    static readonly Vec4f ArrowColor = new(1f, 1f, 1f, 0.95f);
     static readonly Vec4f RestoreColor = new(1f, 1f, 1f, 1f);
 
     readonly WayfindingModSystem mod;
@@ -126,7 +125,7 @@ public sealed class WayfindingMapLayer : MapLayer
 
         WatchTargets();
         DropStaleLabel();
-        if (!Active || !HoverLabelPolicy.Show(HasTarget(), mod.RenderGuard.LayerEnabled))
+        if (!Active || !SurfaceEnabled() || !HoverLabelPolicy.Show(HasTarget(), mod.RenderGuard.LayerEnabled))
         {
             return;
         }
@@ -271,7 +270,7 @@ public sealed class WayfindingMapLayer : MapLayer
         }
 
         GuiElementMap? map = drawing;
-        if (map == null || capi?.World.Player?.Entity == null)
+        if (map == null || capi?.World.Player?.Entity == null || !SurfaceEnabled())
         {
             return;
         }
@@ -392,12 +391,12 @@ public sealed class WayfindingMapLayer : MapLayer
             return;
         }
 
-        SegmentStyle style = SegmentStyles.For(kind);
+        SegmentStyle style = SegmentStyles.For(kind, mod.Config);
         float thickness = (float)GuiElement.scaled(style.Thickness);
         if (goal && minimap && MapEdge.TryEdgePoint(x2, y2, view.InnerWidth, view.InnerHeight, MapEdge.ArrowBorder, out float edgeX, out float edgeY, out float angle))
         {
             DrawClipped(prog, x1, y1, edgeX, edgeY, originX, originY, view, style, thickness);
-            DrawArrow(prog, edgeX + originX, edgeY + originY, angle);
+            DrawArrow(prog, edgeX + originX, edgeY + originY, angle, style.Color);
             DrawLabel(map, edgeX, edgeY, view);
             prog.Uniform("noTexture", 1f);
             prog.UniformMatrix("projectionMatrix", savedProjection);
@@ -452,12 +451,12 @@ public sealed class WayfindingMapLayer : MapLayer
         }
     }
 
-    void DrawArrow(IShaderProgram prog, float tipX, float tipY, float angle)
+    void DrawArrow(IShaderProgram prog, float tipX, float tipY, float angle, Vec4f color)
     {
         float length = (float)GuiElement.scaled(14);
         float tailX = tipX - MathF.Cos(angle) * length;
         float tailY = tipY - MathF.Sin(angle) * length;
-        prog.Uniform("rgbaIn", ArrowColor);
+        prog.Uniform("rgbaIn", color);
         DrawQuad(prog, tailX, tailY, tipX, tipY, (float)GuiElement.scaled(6));
     }
 
@@ -512,6 +511,42 @@ public sealed class WayfindingMapLayer : MapLayer
         matrix.Scale(segment.HalfLength, segment.HalfThickness, 0f);
         prog.UniformMatrix("modelViewMatrix", matrix.Values);
         capi.Render.RenderMesh(quad);
+    }
+
+    internal bool TryHudLine(out string line, out int meters, out bool grey)
+    {
+        line = "";
+        meters = 0;
+        grey = false;
+        NavTarget current = mod.NavTargets?.Current ?? NavTarget.None;
+        MapDraw draw = DimensionPresentation.For(mod.RouteDimension, current.Kind);
+        if (!draw.Line)
+        {
+            line = draw.Badge ?? "";
+            return draw.Badge != null;
+        }
+
+        if (!TryMeters(out meters))
+        {
+            return false;
+        }
+
+        line = HudLine.Format(
+            HudLine.Label(current.Kind, current.Name),
+            DistanceText.Format(meters),
+            HudLine.ModeBadge,
+            HudLine.Status(current.Kind));
+        if (current.Kind == NavTargetKind.Player && mod.TeammateSample is TeammateTetherSample sample)
+        {
+            line = HudLine.WithTether(line, sample.Kind, sample.Age, out grey);
+        }
+
+        return true;
+    }
+
+    bool SurfaceEnabled()
+    {
+        return IsMinimap() ? mod.Config.showOnMinimap : mod.Config.showOnWorldMap;
     }
 
     bool IsMinimap()
@@ -674,7 +709,7 @@ public sealed class WayfindingMapLayer : MapLayer
             return;
         }
 
-        float half = RuntimeEnv.GUIScale * 8f;
+        float half = RuntimeEnv.GUIScale * mod.Config.waypointClickRadius;
         for (int i = 0; i < waypointLayer.ownWaypoints.Count; i++)
         {
             Waypoint? wp = waypointLayer.ownWaypoints[i];
@@ -732,7 +767,7 @@ public sealed class WayfindingMapLayer : MapLayer
             return;
         }
 
-        float half = (float)GuiElement.scaled(5);
+        float half = (float)GuiElement.scaled(mod.Config.playerClickRadius);
         foreach (PacketPlayerPosition packet in TrackedPlayers(capi))
         {
             if (!TrackedPlayerPosition.TryHorizontal(packet, out double px, out double pz))

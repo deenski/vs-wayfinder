@@ -5,52 +5,50 @@ using Wayfinding.Pathing.Map;
 
 namespace Wayfinding;
 
-public sealed class WayfindingClientConfig
-{
-    public int debugVerbosity = 0;
-
-    public string clickBinding = "CtrlLeft";
-}
-
 public static class ClientConfigStore
 {
     public const string FileName = "wayfinding.json";
 
     public static WayfindingClientConfig Load(ICoreClientAPI api, IWayfindingLog log)
     {
-        WayfindingClientConfig? config = null;
-        var missing = false;
+        WayfindingClientConfig? loaded = null;
+        var failed = false;
         try
         {
-            config = api.LoadModConfig<WayfindingClientConfig>(FileName);
-            missing = config is null;
+            loaded = api.LoadModConfig<WayfindingClientConfig>(FileName);
         }
         catch (Exception ex)
         {
+            failed = true;
             log.Log(LogLevel.Warning, "could not read " + FileName + " (" + ex.Message + "); using defaults");
         }
 
-        config ??= new WayfindingClientConfig();
-        var original = config.debugVerbosity;
-        config.debugVerbosity = WayfindingLog.ClampVerbosity(config.debugVerbosity);
-        ClickBindings.Parse(config.clickBinding, out bool bindingOk);
-        if (!bindingOk)
+        var missing = !failed && loaded is null;
+        var config = failed || loaded is null ? new WayfindingClientConfig() : loaded;
+        var originalVerbosity = config.debugVerbosity;
+        var originalBinding = config.clickBinding;
+        var changed = WayfindingConfig.Normalize(config);
+        ClickBindings.Parse(originalBinding, out var bindingOk);
+        if (!failed && !missing && originalVerbosity != config.debugVerbosity)
         {
             log.Log(
                 LogLevel.Warning,
-                "clickBinding \"" + config.clickBinding + "\" is not CtrlLeft, Middle, or Both; using CtrlLeft");
-            config.clickBinding = "CtrlLeft";
+                "debugVerbosity " + originalVerbosity + " is outside 0-3; clamped to " + config.debugVerbosity);
         }
 
-        if (missing || config.debugVerbosity != original || !bindingOk)
+        if (!failed && !missing && !bindingOk)
         {
-            if (!missing && config.debugVerbosity != original)
-            {
-                log.Log(
-                    LogLevel.Warning,
-                    "debugVerbosity " + original + " is outside 0-3; clamped to " + config.debugVerbosity);
-            }
+            log.Log(
+                LogLevel.Warning,
+                "clickBinding \"" + originalBinding + "\" is not CtrlLeft, Middle, or Both; using CtrlLeft");
+        }
+        else if (!failed && !missing && changed && originalVerbosity == config.debugVerbosity)
+        {
+            log.Log(LogLevel.Warning, FileName + " had values outside the allowed range; they were clamped or replaced with defaults");
+        }
 
+        if (missing || (!failed && changed))
+        {
             try
             {
                 api.StoreModConfig(config, FileName);

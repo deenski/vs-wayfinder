@@ -406,6 +406,7 @@ public class DimensionArrivalTests
         var layer = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "Map", "WayfindingMapLayer.cs"));
 
         Assert.Contains("DimensionPresentation.For(mod.RouteDimension, mod.NavTargets?.Current.Kind ?? NavTargetKind.None)", layer, StringComparison.Ordinal);
+        Assert.Contains("DimensionPresentation.For(mod.RouteDimension, current.Kind)", layer, StringComparison.Ordinal);
         Assert.DoesNotContain("labelText = badge", layer, StringComparison.Ordinal);
         Assert.Contains("mod.ReplanRequested += OnForcedReplan", layer, StringComparison.Ordinal);
         Assert.Contains("mod.ReplanRequested -= OnForcedReplan", layer, StringComparison.Ordinal);
