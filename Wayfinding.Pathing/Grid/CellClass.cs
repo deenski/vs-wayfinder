@@ -12,15 +12,22 @@ namespace Wayfinding.Pathing.Grid;
 /// unloaded chunks, so the game side reads through <c>GetBlockOrNull</c> plus a loaded-chunk check).
 /// </para>
 /// <para>
-/// Mapping guidance for KAN-29 / WF-15 (SnapshotBuilder). Classify by what the block does to a walking humanoid:
+/// Mapping for KAN-29 / WF-15 (SnapshotBuilder), agreed on PR #2. Classify on the main thread from the live
+/// accessor, in this order: the fluid layer first (water is <see cref="Water"/>, lava is <see cref="Lava"/>);
+/// then <c>GetTraversalCost(pos, Humanoid)</c> of 10000 or more is <see cref="Hazard"/>; then a block with no
+/// collision boxes is <see cref="Air"/> for block id 0 and <see cref="Walkable"/> otherwise; any collision box
+/// at all is <see cref="Solid"/>; an unloaded or null block stays <see cref="Unknown"/>.
 /// </para>
 /// <list type="table">
 /// <item><term><see cref="Solid"/></term><description>Has a collision box tall enough to stand on and blocks
 /// the body: stone, soil, logs, planks, glass, closed doors, fences, and leaves when they have a collision box.
-/// Slabs and stairs are <see cref="Solid"/> for now (see the open question on step heights in the PR).</description></item>
-/// <item><term><see cref="Walkable"/></term><description>Not empty but passable and not supporting: tall grass,
-/// flowers, crops, saplings, snow layers, carpets, torches, open doors, ladders. Moves through it cost the same
-/// as through air.</description></item>
+/// Thin blocks with a small collision box (snow layers, slabs, stairs) are also <see cref="Solid"/>
+/// for now. Until a step height exists (an additive <c>StepHeight</c> on <see cref="BlockCell"/>, planned for
+/// KAN-29), a slab on top of a block reads as a 2-block climb and is blocked.</description></item>
+/// <item><term><see cref="Walkable"/></term><description>Occupied by a block, but nothing in it blocks you:
+/// you stand <i>in</i> it, not <i>on</i> it. It has no collision box: tall grass, flowers, crops, saplings,
+/// torches, open doors, and ladders (no climbing routes in v1). Moves through it cost the same as through air,
+/// and it never supports a player.</description></item>
 /// <item><term><see cref="Water"/></term><description>Any non-harmful water (still or flowing, fresh or salt).
 /// Costs extra to swim through.</description></item>
 /// <item><term><see cref="Lava"/></term><description>Lava, still or flowing. Never entered.</description></item>
@@ -41,7 +48,10 @@ public enum CellClass : byte
     /// <summary>Blocks the body and supports a player standing on top of it.</summary>
     Solid = 2,
 
-    /// <summary>Passable non-empty block (plants, snow layer, open door...). Moves like air; does not support.</summary>
+    /// <summary>
+    /// A block you stand <i>in</i>, not <i>on</i>: occupied, but without a collision box, so nothing in it blocks
+    /// you (grass, flowers, open doors, ladders). Moves like air and does not support a player.
+    /// </summary>
     Walkable = 3,
 
     /// <summary>Swimmable water. Passable at an extra cost; a player whose feet are in it is swimming or wading.</summary>

@@ -24,8 +24,9 @@ public sealed record ClimbCostOptions
 
     /// <summary>
     /// Cost multiplier for horizontal distance covered while swimming or wading (feet in water). Default 5, the
-    /// game's own water traversal cost; i.e. water adds <c>(WaterCost - 1) × distance</c> on top of the walk
-    /// (the design's "+4 per block"). Must be ≥ 1 so the horizontal-distance heuristic stays admissible.
+    /// game's own water traversal cost. It multiplies horizontal distance (×5, about +4 per block), never a flat
+    /// per-step charge, so diagonal swimming is not cheaper than straight swimming (confirmed in review of PR #2).
+    /// Must be ≥ 1 so the horizontal-distance heuristic stays admissible.
     /// </summary>
     public double WaterCost { get; init; } = 5;
 

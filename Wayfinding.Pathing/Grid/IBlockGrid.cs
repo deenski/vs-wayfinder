@@ -18,7 +18,8 @@ namespace Wayfinding.Pathing.Grid;
 /// <see cref="CellClass.Unknown"/>. Reporting <see cref="CellClass.Air"/> for terrain that was not actually read
 /// would let routes walk off into unloaded chunks.</description></item>
 /// <item><description><b>Integer block coordinates</b> in world space (<see cref="GridPos"/>), within one
-/// <see cref="Dimension"/>.</description></item>
+/// <see cref="Dimension"/>. Y is always the in-dimension Y and never includes the game's dimension offset
+/// (<c>dim * 32768</c> in <c>BlockPos.InternalY</c>); KAN-29 converts.</description></item>
 /// <item><description><see cref="GetClass"/> equals <c>GetCell(x, y, z).Class</c> for every coordinate.</description></item>
 /// </list>
 /// <para>The concrete implementation is <see cref="BlockGridSnapshot"/>; prefer it over custom implementations.</para>
