@@ -35,9 +35,26 @@ jobs:
       - name: Resolve stable and unstable servers
         id: matrix
         run: |
+          set -euo pipefail
+          python3 ci/resolve-server-matrix.py > "$RUNNER_TEMP/server-matrix.json"
+          python3 - "$RUNNER_TEMP/server-matrix.json" <<'PY'
+          import json
+          import sys
+          rows = json.load(open(sys.argv[1], encoding="utf-8"))["include"]
+          unstable = [row for row in rows if row["channel"] == "unstable"]
+          if not unstable:
+              print("::notice title=Unstable server skipped::unstable.json has no linux server entry. Skipping that matrix leg.")
+          for row in unstable:
+              if row.get("skip"):
+                  print(
+                      "::notice title=Unstable server skipped::"
+                      f"Unstable {row['version']} is not newer than stable {row['stable_version']}. "
+                      "Skipping the unstable build-and-load job."
+                  )
+          PY
           {
             echo "matrix<<EOF"
-            python3 ci/resolve-server-matrix.py
+            cat "$RUNNER_TEMP/server-matrix.json"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -51,14 +68,25 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.resolve-servers.outputs.matrix) }}
     steps:
+      - name: Skip unstable server that is not newer than stable
+        if: matrix.skip
+        env:
+          UNSTABLE_VERSION: ${{ matrix.version }}
+          STABLE_VERSION: ${{ matrix.stable_version }}
+        run: |
+          echo "::notice title=Unstable server skipped::Unstable ${UNSTABLE_VERSION} is not newer than stable ${STABLE_VERSION}. Skipping build and server load."
+          echo "Unstable ${UNSTABLE_VERSION} is not newer than stable ${STABLE_VERSION}. Skipping build and server load."
       - uses: actions/checkout@v4
+        if: ${{ !matrix.skip }}
       - uses: actions/setup-dotnet@v4
+        if: ${{ !matrix.skip }}
         with:
           global-json-file: global.json
       # Fork pull requests cannot read the private package. They use the cache
       # or the checksum-verified download. A failed pull on a same-repo run
       # falls back the same way.
       - name: Acquire Vintage Story server
+        if: ${{ !matrix.skip }}
         uses: ./.github/actions/acquire-vs-server
         with:
           version: ${{ matrix.version }}
@@ -69,12 +97,15 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           actor: ${{ github.actor }}
       - name: Release build
+        if: ${{ !matrix.skip }}
         env:
           VINTAGE_STORY: ${{ runner.temp }}/vs-server
         run: dotnet build -c Release
       - name: Assert mod zip
+        if: ${{ !matrix.skip }}
         run: python3 ci/assert-mod-zip.py
       - name: Load mod on the headless server
+        if: ${{ !matrix.skip }}
         env:
           VINTAGE_STORY: ${{ runner.temp }}/vs-server
         run: |

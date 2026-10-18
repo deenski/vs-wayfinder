@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import urllib.request
 from pathlib import Path
@@ -73,6 +74,28 @@ def stable_entry(catalog: dict, version: str) -> dict:
     return {"version": version, "md5": server["md5"], "url": server["url"]}
 
 
+def version_key(version: str) -> tuple:
+    """Order Vintage Story versions. A release is newer than its own prerelease."""
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.]+))?", version)
+    if match is None:
+        raise SystemExit(f"unrecognized Vintage Story version: {version}")
+    major, minor, patch = (int(match.group(index)) for index in (1, 2, 3))
+    prerelease = match.group(4)
+    if prerelease is None:
+        return (major, minor, patch, 1, ())
+    parts: list[tuple] = []
+    for piece in prerelease.split("."):
+        if piece.isdigit():
+            parts.append((0, int(piece)))
+        else:
+            parts.append((1, piece))
+    return (major, minor, patch, 0, tuple(parts))
+
+
+def is_newer(candidate: str, baseline: str) -> bool:
+    return version_key(candidate) > version_key(baseline)
+
+
 def current_unstable(catalog: dict) -> dict | None:
     latest: list[dict] = []
     found: list[dict] = []
@@ -107,8 +130,10 @@ def matrix(stable: dict, unstable: dict | None) -> dict:
             "version": stable["version"],
             "md5": stable["md5"],
             "url": stable["url"],
+            "stable_version": stable["version"],
             "use_ghcr": True,
             "continue_on_error": False,
+            "skip": False,
         }
     ]
     if unstable is not None:
@@ -119,8 +144,10 @@ def matrix(stable: dict, unstable: dict | None) -> dict:
                 "version": unstable["version"],
                 "md5": unstable["md5"],
                 "url": unstable["url"],
+                "stable_version": stable["version"],
                 "use_ghcr": False,
                 "continue_on_error": True,
+                "skip": not is_newer(unstable["version"], stable["version"]),
             }
         )
     return {"include": include}
@@ -142,6 +169,12 @@ def main() -> None:
     if unstable is None:
         print(
             "unstable.json has no linux server entry; skipping that matrix leg",
+            file=sys.stderr,
+        )
+    elif not is_newer(unstable["version"], stable["version"]):
+        print(
+            f"unstable {unstable['version']} is not newer than stable {stable['version']}; "
+            "skipping the unstable build",
             file=sys.stderr,
         )
     else:
