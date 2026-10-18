@@ -1,0 +1,97 @@
+name: Acquire Vintage Story server
+description: >-
+  Install a headless Vintage Story server. Tries the private GHCR image when
+  asked, then the Actions cache, then a checksum-verified CDN download.
+  Game files are not uploaded as artifacts.
+
+inputs:
+  version:
+    description: Server version. Used in the image tag and the cache key.
+    required: true
+  md5:
+    description: Expected MD5 of the official linux server tarball.
+    required: true
+  url:
+    description: Official CDN URL of the linux server tarball.
+    required: true
+  dest:
+    description: Absolute directory that will contain VintagestoryAPI.dll.
+    required: true
+  use-ghcr:
+    description: "true to try ghcr.io/deenski/vs-wayfinder-server:<version> first."
+    required: true
+    default: "false"
+  image:
+    description: Image name without a tag.
+    required: false
+    default: ghcr.io/deenski/vs-wayfinder-server
+  token:
+    description: Token used to pull the private image. Empty skips GHCR.
+    required: false
+    default: ""
+  actor:
+    description: GitHub actor for the GHCR login.
+    required: false
+    default: ""
+
+outputs:
+  source:
+    description: ghcr, cache, or download
+    value: ${{ steps.finish.outputs.source }}
+
+runs:
+  using: composite
+  steps:
+    - name: Pull server image from GHCR
+      id: ghcr
+      if: inputs.use-ghcr == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_ACTOR: ${{ inputs.actor }}
+        IMAGE: ${{ inputs.image }}:${{ inputs.version }}
+        DEST: ${{ inputs.dest }}
+      run: bash "$GITHUB_WORKSPACE/ci/pull-ghcr-server.sh"
+
+    - name: Restore server from the Actions cache
+      id: cache
+      if: steps.ghcr.outputs.acquired != 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ inputs.dest }}
+        key: vs-server-${{ inputs.version }}-${{ inputs.md5 }}
+
+    - name: Download and verify the server tarball
+      if: steps.ghcr.outputs.acquired != 'true' && steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        URL: ${{ inputs.url }}
+        EXPECTED_MD5: ${{ inputs.md5 }}
+        DEST: ${{ inputs.dest }}
+      run: bash "$GITHUB_WORKSPACE/ci/download-server.sh"
+
+    - name: Save the server to the Actions cache
+      if: steps.ghcr.outputs.acquired != 'true' && steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ inputs.dest }}
+        key: vs-server-${{ inputs.version }}-${{ inputs.md5 }}
+
+    - name: Record where the server came from
+      id: finish
+      shell: bash
+      env:
+        GHCR_ACQUIRED: ${{ steps.ghcr.outputs.acquired }}
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+        DEST: ${{ inputs.dest }}
+      run: |
+        if [ "$GHCR_ACQUIRED" = "true" ]; then
+          source=ghcr
+        elif [ "$CACHE_HIT" = "true" ]; then
+          source=cache
+        else
+          source=download
+        fi
+        echo "source=$source" >> "$GITHUB_OUTPUT"
+        echo "Server install source: $source"
+        test -f "$DEST/VintagestoryAPI.dll"

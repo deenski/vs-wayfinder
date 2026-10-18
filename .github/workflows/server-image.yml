@@ -1,0 +1,77 @@
+name: server-image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable Vintage Story server version to bake
+        required: false
+        default: "1.22.7"
+        type: string
+  push:
+    branches:
+      - main
+    paths:
+      - ci/vs-version.txt
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: publish-server-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            version="$INPUT_VERSION"
+          else
+            version="$(tr -d '[:space:]' < ci/vs-version.txt)"
+          fi
+          if [ -z "$version" ]; then
+            echo "server version is empty" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Read stable.json
+        id: meta
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: python3 ci/resolve-server-matrix.py --env-version "$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify the server
+        env:
+          URL: ${{ steps.meta.outputs.url }}
+          EXPECTED_MD5: ${{ steps.meta.outputs.md5 }}
+          DEST: ${{ runner.temp }}/vs-context
+        run: bash ci/download-server.sh
+
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
+
+      - name: Build and push the private server image
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DEST: ${{ runner.temp }}/vs-context
+          REPO: ${{ github.repository }}
+        run: |
+          image="ghcr.io/deenski/vs-wayfinder-server:${VERSION}"
+          docker build \
+            -f ci/Dockerfile \
+            --label "org.opencontainers.image.source=https://github.com/${REPO}" \
+            -t "$image" \
+            "$DEST"
+          docker push "$image"

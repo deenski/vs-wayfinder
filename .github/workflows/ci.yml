@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  guard-and-unit-tests:
+    name: guard-and-unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Unit tests
+        run: |
+          unset VINTAGE_STORY
+          dotnet test
+
+  resolve-servers:
+    name: resolve-servers
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve stable and unstable servers
+        id: matrix
+        run: |
+          {
+            echo "matrix<<EOF"
+            python3 ci/resolve-server-matrix.py
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  build-and-load:
+    name: ${{ matrix.check_name }}
+    needs: resolve-servers
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: ${{ matrix.continue_on_error }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.resolve-servers.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      # Fork pull requests cannot read the private package. They use the cache
+      # or the checksum-verified download. A failed pull on a same-repo run
+      # falls back the same way.
+      - name: Acquire Vintage Story server
+        uses: ./.github/actions/acquire-vs-server
+        with:
+          version: ${{ matrix.version }}
+          md5: ${{ matrix.md5 }}
+          url: ${{ matrix.url }}
+          dest: ${{ runner.temp }}/vs-server
+          use-ghcr: ${{ matrix.use_ghcr && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          actor: ${{ github.actor }}
+      - name: Release build
+        env:
+          VINTAGE_STORY: ${{ runner.temp }}/vs-server
+        run: dotnet build -c Release
+      - name: Assert mod zip
+        run: python3 ci/assert-mod-zip.py
+      - name: Load mod on the headless server
+        env:
+          VINTAGE_STORY: ${{ runner.temp }}/vs-server
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          zips=(Releases/wayfinding_*.zip)
+          if [ "${#zips[@]}" -ne 1 ]; then
+            echo "expected one mod zip, found ${#zips[@]}" >&2
+            exit 1
+          fi
+          bash ci/smoke-server.sh "$VINTAGE_STORY" "${zips[0]}"
