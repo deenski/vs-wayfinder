@@ -9,7 +9,7 @@ using Wayfinding.Teams;
 
 namespace Wayfinding;
 
-public class WayfindingModSystem : ModSystem
+public partial class WayfindingModSystem : ModSystem
 {
     private ICoreClientAPI? capi;
     private TeamService? _teams;
@@ -60,11 +60,12 @@ public class WayfindingModSystem : ModSystem
         api.Event.LevelFinalize += OnLevelFinalize;
         api.Event.LeaveWorld += OnLeaveWorld;
         // NavCommands owns the one .nav root. share and team are subcommands of it.
-        // NavTargetCommands adds waypoint, player, coord, off, and status on that same root.
         _teams = new TeamService(api, Log);
         NavCommands.Register(api, this, _teams);
         _teams.Start();
         navigation = NavTargetCommands.Register(api, this, _teams);
+        RegisterTeammateTether(api);
+        RegisterDimensionAndArrival(api);
     }
 
     public override void StartServerSide(ICoreServerAPI api)
@@ -74,8 +75,17 @@ public class WayfindingModSystem : ModSystem
 
     public override void Dispose()
     {
+        if (capi is not null)
+        {
+            capi.Event.LevelFinalize -= OnLevelFinalize;
+        }
+
         _teams?.Dispose();
         _teams = null;
+        // Arrival (KAN-23) before the tether (KAN-22). Both hooks are safe when
+        // their Register methods never ran, including on the server instance.
+        DisposeDimensionAndArrival();
+        DisposeTeammateTether();
         navigation?.Dispose();
         navigation = null;
         base.Dispose();

@@ -10,8 +10,8 @@ public static class NavCommands
 {
     public static void Register(ICoreClientAPI capi, WayfindingModSystem mod, TeamService teams)
     {
-        // One root. stats, KAN-17 debug, and KAN-21 share/team all hang off it.
-        var nav = capi.ChatCommands
+        // One .nav root. share, team, and the KAN-22/KAN-23 stubs use this instance.
+        IChatCommand nav = capi.ChatCommands
             .GetOrCreate("nav")
             .WithDescription("Wayfinding")
             .RequiresPrivilege(Privilege.chat)
@@ -50,6 +50,8 @@ public static class NavCommands
             .EndSubCommand();
 
         teams.RegisterSubcommands(nav);
+        TeammateTetherCommands.Register(nav, mod);
+        DimensionArrivalCommands.Register(nav, mod);
     }
 
     private static TextCommandResult OnDebug()
