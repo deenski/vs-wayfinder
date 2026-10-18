@@ -7,16 +7,16 @@ namespace Wayfinding.Pathing.Map;
 /// </summary>
 public readonly struct MapViewRect
 {
-    /// <summary>West block edge of the world window.</summary>
+    /// <summary>Western block edge of the view.</summary>
     public double BlockX1 { get; init; }
 
-    /// <summary>North block edge of the world window.</summary>
+    /// <summary>Northern block edge of the view.</summary>
     public double BlockZ1 { get; init; }
 
-    /// <summary>East block edge of the world window.</summary>
+    /// <summary>Eastern block edge of the view.</summary>
     public double BlockX2 { get; init; }
 
-    /// <summary>South block edge of the world window.</summary>
+    /// <summary>Southern block edge of the view.</summary>
     public double BlockZ2 { get; init; }
 
     /// <summary>Map element width in pixels.</summary>
@@ -25,16 +25,16 @@ public readonly struct MapViewRect
     /// <summary>Map element height in pixels.</summary>
     public double InnerHeight { get; init; }
 
-    /// <summary>Element origin X in screen pixels. Zero yields view-local pixels.</summary>
+    /// <summary>Element origin X in screen pixels. Zero yields view-local X.</summary>
     public double OriginX { get; init; }
 
-    /// <summary>Element origin Y in screen pixels. Zero yields view-local pixels.</summary>
+    /// <summary>Element origin Y in screen pixels. Zero yields view-local Y.</summary>
     public double OriginY { get; init; }
 
-    /// <summary>World-window width in blocks.</summary>
+    /// <summary>View width in blocks (<see cref="BlockX2"/> minus <see cref="BlockX1"/>).</summary>
     public double BlockWidth => BlockX2 - BlockX1;
 
-    /// <summary>World-window height in blocks.</summary>
+    /// <summary>View height in blocks (<see cref="BlockZ2"/> minus <see cref="BlockZ1"/>).</summary>
     public double BlockHeight => BlockZ2 - BlockZ1;
 }
 
@@ -45,7 +45,13 @@ public readonly struct MapViewRect
 /// </summary>
 public static class MapProjection
 {
-    /// <summary>Maps a world X/Z into view pixels. False when the view has a zero span.</summary>
+    /// <summary>Projects a world X/Z into view pixels.</summary>
+    /// <param name="view">Map element and the world window it shows.</param>
+    /// <param name="worldX">World X.</param>
+    /// <param name="worldZ">World Z.</param>
+    /// <param name="x">View X. Zero when the view has no scale.</param>
+    /// <param name="y">View Y. Zero when the view has no scale.</param>
+    /// <returns>False when a block or pixel extent is zero.</returns>
     public static bool TryWorldToView(MapViewRect view, double worldX, double worldZ, out float x, out float y)
     {
         x = 0;
@@ -60,7 +66,13 @@ public static class MapProjection
         return true;
     }
 
-    /// <summary>Maps view pixels back to world X/Z. False when the view has a zero span.</summary>
+    /// <summary>Projects a view pixel back to world X/Z.</summary>
+    /// <param name="view">Map element and the world window it shows.</param>
+    /// <param name="viewX">View X.</param>
+    /// <param name="viewY">View Y.</param>
+    /// <param name="worldX">World X. Zero when the view has no scale.</param>
+    /// <param name="worldZ">World Z. Zero when the view has no scale.</param>
+    /// <returns>False when a block or pixel extent is zero.</returns>
     public static bool TryViewToWorld(MapViewRect view, float viewX, float viewY, out double worldX, out double worldZ)
     {
         worldX = 0;
@@ -87,13 +99,17 @@ public static class MapProjection
         /// <summary>Pixels per block on Z, applied to screen Y.</summary>
         public float ScaleY { get; init; }
 
-        /// <summary>Screen X of world origin after scale.</summary>
+        /// <summary>Screen X of world origin after the scale.</summary>
         public float OriginX { get; init; }
 
-        /// <summary>Screen Y of world origin after scale.</summary>
+        /// <summary>Screen Y of world origin after the scale.</summary>
         public float OriginY { get; init; }
 
-        /// <summary>Applies <c>origin + world * scale</c>.</summary>
+        /// <summary>Applies this transform to a world point.</summary>
+        /// <param name="worldX">World X.</param>
+        /// <param name="worldZ">World Z.</param>
+        /// <param name="screenX">Screen X.</param>
+        /// <param name="screenY">Screen Y.</param>
         public void Apply(double worldX, double worldZ, out float screenX, out float screenY)
         {
             screenX = OriginX + (float)(worldX * ScaleX);
@@ -101,7 +117,10 @@ public static class MapProjection
         }
     }
 
-    /// <summary>Builds the affine transform for <paramref name="view"/>. False when a span is zero.</summary>
+    /// <summary>Builds the affine form of <see cref="TryWorldToView"/>.</summary>
+    /// <param name="view">Map element and the world window it shows.</param>
+    /// <param name="transform">The transform. Default when the view has no scale.</param>
+    /// <returns>False when a block or pixel extent is zero.</returns>
     public static bool TryViewTransform(MapViewRect view, out ViewTransform transform)
     {
         transform = default;
@@ -124,6 +143,11 @@ public static class MapProjection
     /// Port of <c>GuiElementMap.ClampButPreserveAngle</c>, including its edge test
     /// (<c>inner - 2</c>, not <c>inner - border</c>). A zero center is left unchanged.
     /// </summary>
+    /// <param name="x">View X, updated in place when the point is outside the clamp region.</param>
+    /// <param name="y">View Y, updated in place when the point is outside the clamp region.</param>
+    /// <param name="innerWidth">Map element width in pixels.</param>
+    /// <param name="innerHeight">Map element height in pixels.</param>
+    /// <param name="border">Inset, in pixels, used for the near edges and the center.</param>
     public static void ClampPreserveAngle(ref float x, ref float y, double innerWidth, double innerHeight, int border)
     {
         if (IsInsideClampRegion(x, y, innerWidth, innerHeight, border))
@@ -150,7 +174,12 @@ public static class MapProjection
         y = (float)((y - centerY) / factor + centerY);
     }
 
-    /// <summary>True when the point is inside the clamp region (<c>inner - 2</c> on the far edges).</summary>
+    /// <summary>True when the point is inside the region <see cref="ClampPreserveAngle"/> leaves alone.</summary>
+    /// <param name="x">View X.</param>
+    /// <param name="y">View Y.</param>
+    /// <param name="innerWidth">Map element width in pixels.</param>
+    /// <param name="innerHeight">Map element height in pixels.</param>
+    /// <param name="border">Inset, in pixels, used for the near edges.</param>
     public static bool IsInsideClampRegion(float x, float y, double innerWidth, double innerHeight, int border)
     {
         return x >= border && x <= innerWidth - 2 && y >= border && y <= innerHeight - 2;

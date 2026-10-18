@@ -7,25 +7,28 @@ namespace Wayfinding.Pathing.Map;
 /// </summary>
 public readonly struct SegmentQuad
 {
-    /// <summary>Quad center X in view pixels.</summary>
+    /// <summary>Segment center X in view pixels.</summary>
     public float CenterX { get; init; }
 
-    /// <summary>Quad center Y in view pixels.</summary>
+    /// <summary>Segment center Y in view pixels.</summary>
     public float CenterY { get; init; }
 
-    /// <summary>Half the segment length in pixels.</summary>
+    /// <summary>Half the segment length in view pixels.</summary>
     public float HalfLength { get; init; }
 
-    /// <summary>Half the line thickness in pixels.</summary>
+    /// <summary>Half the stroke thickness in view pixels.</summary>
     public float HalfThickness { get; init; }
 
-    /// <summary>Rotation of the segment, in radians.</summary>
+    /// <summary>Segment angle in radians, from <c>Atan2</c> of the endpoint delta.</summary>
     public float AngleRadians { get; init; }
 
-    /// <summary>
-    /// Builds a quad from endpoints. False when the segment is shorter than half a pixel
-    /// or the thickness is not positive.
-    /// </summary>
+    /// <summary>Builds a quad from two endpoints. Fails for a segment shorter than half a pixel or a non-positive thickness.</summary>
+    /// <param name="x1">Start X.</param>
+    /// <param name="y1">Start Y.</param>
+    /// <param name="x2">End X.</param>
+    /// <param name="y2">End Y.</param>
+    /// <param name="thickness">Stroke thickness in view pixels.</param>
+    /// <param name="quad">The quad. Default when this returns false.</param>
     public static bool TryFromEndpoints(float x1, float y1, float x2, float y2, float thickness, out SegmentQuad quad)
     {
         quad = default;
@@ -49,7 +52,7 @@ public readonly struct SegmentQuad
     }
 }
 
-/// <summary>One dash in view pixels.</summary>
+/// <summary>One dash of a dashed segment, in view pixels.</summary>
 public readonly struct DashSegment
 {
     /// <summary>Dash start X.</summary>
@@ -65,11 +68,11 @@ public readonly struct DashSegment
     public float Y2 { get; init; }
 }
 
-/// <summary>Lays a segment out as screen-space dashes.</summary>
+/// <summary>Screen-space dashes along a segment.</summary>
 public static class DashLayout
 {
     /// <summary>
-    /// Writes dashes for one segment.
+    /// Writes dashes into <paramref name="destination"/>.
     /// Returns 0 when the segment is shorter than 1 pixel, so there is nothing to draw.
     /// Returns -1 when the caller should draw one solid quad: <paramref name="dashLength"/> is not
     /// positive, <paramref name="maxDashes"/> is below 1, the dash step is not positive, the segment
@@ -77,6 +80,14 @@ public static class DashLayout
     /// A positive return is how many dashes the segment produces. Only
     /// <c>min(count, destination.Length)</c> of them are written.
     /// </summary>
+    /// <param name="x1">Segment start X.</param>
+    /// <param name="y1">Segment start Y.</param>
+    /// <param name="x2">Segment end X.</param>
+    /// <param name="y2">Segment end Y.</param>
+    /// <param name="dashLength">Dash length in view pixels.</param>
+    /// <param name="gapLength">Gap length in view pixels. Negative gaps are treated as zero.</param>
+    /// <param name="maxDashes">Most dashes to produce before falling back to one solid quad.</param>
+    /// <param name="destination">Buffer that receives the dashes that fit. Extra dashes are counted and not stored.</param>
     public static int Copy(
         float x1,
         float y1,
