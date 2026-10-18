@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Server;
+using Vintagestory.GameContent;
 using Wayfinding.Infra;
 
 namespace Wayfinding;
@@ -35,6 +36,12 @@ public class WayfindingModSystem : ModSystem
         capi = api;
         Log.Verbosity = ClientConfigStore.Load(api, Log).debugVerbosity;
         RunGate();
+        if (Gate.IsEnabled(Feature.MapLayer))
+        {
+            api.ModLoader.GetModSystem<WorldMapManager>()
+                .RegisterMapLayer<DebugMapLayer>(DebugMapLayer.LayerCode, 1.1);
+        }
+
         api.Event.LevelFinalize += OnLevelFinalize;
         NavCommands.Register(api, this);
     }

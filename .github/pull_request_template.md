@@ -2,8 +2,6 @@
 
 `KAN-##`
 
-https://jakevendegna.atlassian.net/browse/KAN-##
-
 ## Summary
 
 <!-- 1 to 3 sentences on what changed and why. -->
@@ -19,7 +17,13 @@ https://jakevendegna.atlassian.net/browse/KAN-##
 ## Safety
 
 - [ ] No game files, game DLLs, server archives, or secrets are added or referenced outside `$(VINTAGE_STORY)`
-- [ ] Shared setup touched (layout, global.json/.NET version, Directory.Build.*, the solution file, .github/workflows): Senior Engineer is reviewing.
+- [ ] Shared setup touched? If yes, Senior Engineer is the assigned reviewer.
+
+## Merge
+
+Merge rule: one assigned-reviewer approval + green CI, then squash-merge.
+
+- [ ] Squash commit body includes `Approved-by: <reviewer> at <sha>`. The approval comes by agent message plus a note on the Jira ticket.
 
 ## Jira summary (paste as the Done comment)
 

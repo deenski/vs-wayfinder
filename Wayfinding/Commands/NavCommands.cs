@@ -9,8 +9,8 @@ public static class NavCommands
 {
     public static void Register(ICoreClientAPI capi, WayfindingModSystem mod)
     {
-        // GetOrCreate so another mod system can add subcommands (KAN-21 share/team)
-        // without Create throwing when this root already exists.
+        // One root. GetOrCreate so a later mod system can add subcommands (KAN-21
+        // share/team) without Create throwing when this root already exists.
         capi.ChatCommands
             .GetOrCreate("nav")
             .WithDescription("Wayfinding")
@@ -23,6 +23,68 @@ public static class NavCommands
                     mod.RenderGuard,
                     mod.Log.Verbosity,
                     mod.Metrics)))
+            .EndSubCommand()
+            .BeginSubCommand("debug")
+                .WithDescription("Render spike. Subcommands: on, off, throw.")
+                .RequiresPrivilege(Privilege.chat)
+                .HandleWith(_ => TextCommandResult.Success(LayerStatus(), null))
+                .BeginSubCommand("on")
+                    .WithDescription("Draw a sample line from the player.")
+                    .RequiresPrivilege(Privilege.chat)
+                    .HandleWith(_ => OnDebug())
+                .EndSubCommand()
+                .BeginSubCommand("off")
+                    .WithDescription("Clear the debug target.")
+                    .RequiresPrivilege(Privilege.chat)
+                    .HandleWith(_ => OffDebug())
+                .EndSubCommand()
+                .BeginSubCommand("clear")
+                    .RequiresPrivilege(Privilege.chat)
+                    .HandleWith(_ => OffDebug())
+                .EndSubCommand()
+                .BeginSubCommand("throw")
+                    .WithDescription("Throw once inside Render to prove the guard.")
+                    .RequiresPrivilege(Privilege.chat)
+                    .HandleWith(_ => ArmThrow())
+                .EndSubCommand()
             .EndSubCommand();
+    }
+
+    private static TextCommandResult OnDebug()
+    {
+        DebugMapLayer? layer = DebugMapLayer.Instance;
+        if (layer == null)
+        {
+            return TextCommandResult.Success("Wayfinding debug layer is not loaded yet.", null);
+        }
+
+        layer.SetSampleTarget();
+        return TextCommandResult.Success(
+            layer.HasTarget ? "Drawing a sample line. " + layer.Status() : "No player position yet.",
+            null);
+    }
+
+    private static TextCommandResult OffDebug()
+    {
+        DebugMapLayer? layer = DebugMapLayer.Instance;
+        layer?.ClearTarget();
+        return TextCommandResult.Success("Wayfinding debug target cleared.", null);
+    }
+
+    private static TextCommandResult ArmThrow()
+    {
+        DebugMapLayer? layer = DebugMapLayer.Instance;
+        if (layer == null)
+        {
+            return TextCommandResult.Success("Wayfinding debug layer is not loaded yet.", null);
+        }
+
+        layer.ArmRenderException();
+        return TextCommandResult.Success("Next map render will throw once, then the layer disables itself.", null);
+    }
+
+    private static string LayerStatus()
+    {
+        return DebugMapLayer.Instance?.Status() ?? "Wayfinding debug layer is not loaded yet.";
     }
 }

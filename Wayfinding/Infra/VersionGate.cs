@@ -28,7 +28,7 @@ public sealed class VersionGate
             return false;
         }
 
-        return states[feature].Enabled;
+        return states.TryGetValue(feature, out var state) && state.Enabled;
     }
 
     public FeatureState State(Feature feature)
