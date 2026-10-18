@@ -64,13 +64,26 @@ public class CellClassifierTests
     [Theory]
     [InlineData(0, 10, 10)]
     [InlineData(1, 10, 32768 + 10)]
-    [InlineData(2, -4, 65536 - 4)]
+    [InlineData(2, 4, 65536 + 4)]
     [InlineData(-1, 3, -32768 + 3)]
     public void DimensionY_RoundTrips(int dimension, int y, int internalY)
     {
         Assert.Equal(internalY, DimensionY.ToInternal(dimension, y));
         Assert.Equal(y, DimensionY.ToInDimension(dimension, internalY));
         Assert.Equal(32768, DimensionY.Boundary);
+    }
+
+    [Fact]
+    public void OutOfRangeY_IsOutsideTheDimension()
+    {
+        Assert.False(DimensionY.ContainsInDimensionY(-1));
+        Assert.False(DimensionY.ContainsInDimensionY(DimensionY.Boundary));
+        Assert.True(DimensionY.ContainsInDimensionY(0));
+        Assert.True(DimensionY.ContainsInDimensionY(DimensionY.Boundary - 1));
+        Assert.False(DimensionY.ContainsChunkY(-1, 32));
+        Assert.False(DimensionY.ContainsChunkY(1024, 32));
+        Assert.True(DimensionY.ContainsChunkY(0, 32));
+        Assert.True(DimensionY.ContainsChunkY(1023, 32));
     }
 
     [Fact]

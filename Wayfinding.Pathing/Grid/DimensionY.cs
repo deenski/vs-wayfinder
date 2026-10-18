@@ -14,6 +14,29 @@ public static class DimensionY
     /// <summary>Blocks per dimension in the game's internal Y (<c>dim * 32768</c>).</summary>
     public const int Boundary = 32768;
 
+    /// <summary>
+    /// True when <paramref name="inDimensionY"/> sits inside one dimension.
+    /// </summary>
+    /// <param name="inDimensionY">Y with no dimension offset.</param>
+    /// <returns>False for a negative Y or a Y at <see cref="Boundary"/> or above. Those addresses are another dimension and must stay <see cref="CellClass.Unknown"/>.</returns>
+    public static bool ContainsInDimensionY(int inDimensionY) => (uint)inDimensionY < (uint)Boundary;
+
+    /// <summary>
+    /// True when <paramref name="chunkY"/> is a chunk inside one dimension.
+    /// </summary>
+    /// <param name="chunkY">In-dimension chunk Y, the floor of block Y / <paramref name="chunkSize"/>.</param>
+    /// <param name="chunkSize">Chunk edge in blocks.</param>
+    /// <returns>
+    /// False when <paramref name="chunkY"/> is negative or at least <see cref="Boundary"/> / <paramref name="chunkSize"/>.
+    /// For a 32-block chunk that rejects chunk -1, which would otherwise become the previous dimension's top chunk.
+    /// </returns>
+    public static bool ContainsChunkY(int chunkY, int chunkSize)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(chunkSize, 1);
+        int chunks = Boundary / chunkSize;
+        return (uint)chunkY < (uint)chunks;
+    }
+
     /// <summary>Converts an in-dimension Y to the game's internal Y.</summary>
     /// <param name="dimension">Game dimension id.</param>
     /// <param name="inDimensionY">Y inside that dimension, with no dimension offset.</param>

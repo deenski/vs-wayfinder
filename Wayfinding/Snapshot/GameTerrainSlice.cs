@@ -67,6 +67,13 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
             CloseChunk();
         }
 
+        // A negative chunk Y, or one at Boundary/ChunkSize and above, is the neighbouring dimension.
+        // Dim 2 chunkY -1 would be game chunk 2047, which is dim 1's top chunk. Leave it unknown.
+        if (!DimensionY.ContainsChunkY(chunkY, ChunkSize))
+        {
+            return false;
+        }
+
         int gameChunkY = chunkY + dimension * (DimensionY.Boundary / ChunkSize);
         guard.AssertMainThread();
         IWorldChunk? found = blocks.GetChunk(chunkX, gameChunkY, chunkZ);
@@ -131,8 +138,13 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
     public bool TryReadCell(int x, int y, int z, out BlockCell cell)
     {
         guard.AssertMainThread();
-        ChunkReadProtocol.Read(log);
         cell = default;
+        if (!DimensionY.ContainsInDimensionY(y))
+        {
+            return false;
+        }
+
+        ChunkReadProtocol.Read(log);
         IWorldChunk? current = chunk;
         if (!open || current == null || current.Disposed || current.Data == null)
         {

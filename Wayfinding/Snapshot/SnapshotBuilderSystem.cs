@@ -29,6 +29,7 @@ public sealed class SnapshotBuilderSystem : ModSystem
     private Job? job;
     private bool smokeStarted;
     private int smokeTicks;
+    private bool failureLogged;
 
     /// <summary>Per-frame snapshot cost. Each sample is also forwarded to <see cref="PlanMetrics.RecordSnapshotMs"/>.</summary>
     public SnapshotStatsSink Stats => stats;
@@ -83,6 +84,7 @@ public sealed class SnapshotBuilderSystem : ModSystem
         }
 
         guard.AssertMainThread();
+        failureLogged = false;
         job?.Terrain.CloseChunk();
         int chunkSize = GlobalConstants.ChunkSize;
         if (chunkSize <= 0)
@@ -105,14 +107,41 @@ public sealed class SnapshotBuilderSystem : ModSystem
         }
 
         guard.AssertMainThread();
-        SnapshotSlice slice = job.Fill.Advance(job.Terrain, TimeSlicedSnapshotFill.DefaultBudget, stats);
-        if (!slice.Completed)
+        bool keep = SnapshotBuildStep.TryAdvance(
+            job.Fill,
+            job.Terrain,
+            job.Builder,
+            TimeSlicedSnapshotFill.DefaultBudget,
+            stats,
+            out BlockGridSnapshot? completed,
+            out Exception? error);
+        if (error != null)
+        {
+            LogBuildFailure(error);
+            job = null;
+            return;
+        }
+
+        if (keep)
         {
             return;
         }
 
-        Latest = job.Builder.Build();
+        Latest = completed;
         job = null;
+    }
+
+    private void LogBuildFailure(Exception error)
+    {
+        if (failureLogged || api == null)
+        {
+            return;
+        }
+
+        failureLogged = true;
+        api.ModLoader.GetModSystem<WayfindingModSystem>().Log.Log(
+            LogLevel.Error,
+            "snapshot build failed: " + error.Message);
     }
 
     private void MaybeSmoke()
