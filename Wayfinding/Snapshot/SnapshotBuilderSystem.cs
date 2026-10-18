@@ -15,11 +15,6 @@ namespace Wayfinding.Snapshot;
 /// <remarks>
 /// This system does not register a chat command. <c>.nav</c> belongs to whoever calls
 /// <c>GetOrCreate("nav")</c>; this class only exposes <see cref="LastSnapshotMilliseconds"/>.
-/// It loads on the client and on the server. A dedicated server builds snapshots on its main
-/// thread, so <c>ShouldLoad</c> is not limited to one <c>EnumAppSide</c>. Single-player runs
-/// client and server chunk types in one process; <see cref="ReflectiveBlockIdReader"/> keeps a
-/// reader per runtime type so those two do not share a cast. A dedicated server has no local
-/// player, so <see cref="CellFlags.BuildForbidden"/> stays unset there.
 /// </remarks>
 public sealed class SnapshotBuilderSystem : ModSystem
 {
@@ -40,7 +35,6 @@ public sealed class SnapshotBuilderSystem : ModSystem
     private bool smokeStarted;
     private int smokeTicks;
     private bool failureLogged;
-    private volatile BlockGridSnapshot? latest;
 
     /// <summary>Per-frame snapshot cost. Each sample is also forwarded to <see cref="PlanMetrics.RecordSnapshotMs"/>.</summary>
     public SnapshotStatsSink Stats => stats;
@@ -48,11 +42,8 @@ public sealed class SnapshotBuilderSystem : ModSystem
     /// <summary>Milliseconds of the latest slice, for <c>.nav stats</c>. Null until the first slice.</summary>
     public double? LastSnapshotMilliseconds => stats.LastMilliseconds;
 
-    /// <summary>
-    /// The snapshot produced by the last finished <see cref="Begin"/>, or null.
-    /// The backing field is volatile so a worker can read the published reference.
-    /// </summary>
-    public BlockGridSnapshot? Latest => latest;
+    /// <summary>The snapshot produced by the last finished <see cref="Begin"/>, or null.</summary>
+    public BlockGridSnapshot? Latest { get; private set; }
 
     /// <summary>True while a build still has chunks left.</summary>
     public bool IsBuilding => job != null;
@@ -109,7 +100,7 @@ public sealed class SnapshotBuilderSystem : ModSystem
         var builder = new BlockGridSnapshotBuilder(origin, sizeX, sizeY, sizeZ, dimension);
         var terrain = new GameTerrainSlice(api.World, dimension, chunkSize, guard);
         job = new Job(builder, new TimeSlicedSnapshotFill(builder, chunkSize), terrain);
-        latest = null;
+        Latest = null;
     }
 
     private void OnTick(float dt)
@@ -141,7 +132,7 @@ public sealed class SnapshotBuilderSystem : ModSystem
             return;
         }
 
-        latest = completed;
+        Latest = completed;
         job = null;
     }
 

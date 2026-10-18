@@ -14,13 +14,10 @@ namespace Wayfinding.Snapshot;
 /// </summary>
 /// <remarks>
 /// Per chunk, in order: chunk-loaded check, <c>Unpack_ReadOnly</c>, <c>GetBlockOrNull</c> on the
-/// solid layer, then one bulk read lock taken on the <c>IChunkBlocks</c> instance captured at lock
-/// time. Cell ids are read with <c>GetBlockIdUnsafe(index, layer)</c> while that lock is held.
-/// The lock is released on the captured instance before <c>GetTraversalCost</c> and
-/// <c>GetCollisionBoxes</c> run, then taken again so the chunk close still has a lock to drop.
-/// <c>ReleaseBlockReadLock</c> reads <c>Data</c> again and throws if it has gone null, so the
-/// release calls <c>ReleaseBulkReadLock</c> on the instance that was locked.
-/// <c>GetBlockOrNull</c> runs once after unpack and before the lock. It is not called again per cell.
+/// solid layer, one <c>AcquireBlockReadLock</c>, <c>GetBlockIdUnsafe(index, layer)</c> for the fluid
+/// and solid layers, then <c>ReleaseBlockReadLock</c> in a finally.
+/// <c>GetBlockOrNull</c> reads through the locking <c>Get</c>, which takes the same read lock, so it
+/// runs after unpack and before the lock. It is not called again per cell.
 /// <c>Unpack()</c>, <c>GetCachingBlockAccessor</c>, <c>WalkBlocks</c>, and the most-solid layer are
 /// not used. Most-solid looks up <c>Blocks[id].SideSolid</c> and throws when that slot is null.
 /// <c>Data</c> is null while the chunk is compressed; a chunk that stays null after
@@ -42,7 +39,6 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
     private readonly BlockPos pos;
     private Action<string>? missingMethodLog;
     private IWorldChunk? chunk;
-    private IChunkBlocks? lockedData;
     private bool open;
     private int openChunkX;
     private int openChunkY;
@@ -133,35 +129,13 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
     public void AcquireLock()
     {
         guard.AssertMainThread();
-        if (lockedData != null)
-        {
-            return;
-        }
-
-        IWorldChunk? current = chunk;
-        if (current == null || current.Disposed)
-        {
-            return;
-        }
-
-        // Lock the instance we will release. AcquireBlockReadLock reads Data again and
-        // ReleaseBlockReadLock throws if that field goes null before the unlock.
-        IChunkBlocks? data = current.Data;
-        if (data == null)
-        {
-            return;
-        }
-
-        data.TakeBulkReadLock();
-        lockedData = data;
+        chunk!.AcquireBlockReadLock();
     }
 
     public void ReleaseLock()
     {
         guard.AssertMainThread();
-        IChunkBlocks? data = lockedData;
-        lockedData = null;
-        data?.ReleaseBulkReadLock();
+        chunk?.ReleaseBlockReadLock();
     }
 
     public bool TryReadCell(int x, int y, int z, out BlockCell cell)
@@ -175,8 +149,7 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
 
         ChunkReadProtocol.Read(log);
         IWorldChunk? current = chunk;
-        IChunkBlocks? data = lockedData;
-        if (!open || current == null || current.Disposed || data == null)
+        if (!open || current == null || current.Disposed || current.Data == null)
         {
             return false;
         }
@@ -196,35 +169,26 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
 
         int index = (localY * ChunkSize + localZ) * ChunkSize + localX;
         guard.AssertMainThread();
-        if (!LayeredBlockIds.TryRead(data, index, BlockLayersAccess.Fluid, MissingMethodLog, out int fluidId)
-            || !LayeredBlockIds.TryRead(data, index, BlockLayersAccess.Solid, MissingMethodLog, out int solidId))
+        if (!LayeredBlockIds.TryRead(current.Data, index, BlockLayersAccess.Fluid, MissingMethodLog, out int fluidId)
+            || !LayeredBlockIds.TryRead(current.Data, index, BlockLayersAccess.Solid, MissingMethodLog, out int solidId))
         {
             return false;
         }
 
-        // Ids are copied. Classify after the lock so block and mod code does not run while it is held.
-        ReleaseLock();
-        try
+        Place(x, y, z);
+        // Ice sits in the fluid layer and is not a liquid. A solid block in water still has its collision box.
+        if (!TryReadSample(fluidId, solidId, out CellSample sample))
         {
-            Place(x, y, z);
-            // Ice sits in the fluid layer and is not a liquid. A solid-layer id wins when both are set.
-            if (!TryReadSample(fluidId, solidId, out CellSample sample))
-            {
-                return false;
-            }
-
-            if (!CellClassifier.TryClassify(sample, out cell))
-            {
-                return false;
-            }
-
-            ApplyClaim(ref cell);
-            return true;
+            return false;
         }
-        finally
+
+        if (!CellClassifier.TryClassify(sample, out cell))
         {
-            AcquireLock();
+            return false;
         }
+
+        ApplyClaim(ref cell);
+        return true;
     }
 
     public bool IsLoaded(IWorldChunk? candidate)
@@ -286,10 +250,9 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
 
         ObservedFluid kind = ObservedFluid.None;
         float fluidCost = 0;
-        bool fluidIsLiquid = fluid != null && fluid.Id != 0 && fluid.IsLiquid();
-        if (fluidIsLiquid)
+        if (fluid != null && fluid.Id != 0 && fluid.IsLiquid())
         {
-            string code = fluid!.LiquidCode ?? string.Empty;
+            string code = fluid.LiquidCode ?? string.Empty;
             kind = code.Contains("lava", StringComparison.OrdinalIgnoreCase)
                 ? ObservedFluid.Lava
                 : ObservedFluid.Water;
@@ -297,9 +260,8 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
             fluidCost = fluid.GetTraversalCost(pos, EnumAICreatureType.Humanoid);
         }
 
-        // A liquid with no separate solid block is the whole cell. Its own collision box still wins.
-        int blockId = solidId != 0 ? solidId : fluidId;
-        if (kind != ObservedFluid.None && blockId == fluidId)
+        // No separate solid block. A collision box on the liquid itself still wins; otherwise the fluid class stands.
+        if (kind != ObservedFluid.None && solidId == 0)
         {
             guard.AssertMainThread();
             bool fluidCollision = TryMaxCollisionY2(fluid!.GetCollisionBoxes(blocks, pos), out float fluidY2);
@@ -313,6 +275,7 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
             return true;
         }
 
+        int blockId = solidId != 0 ? solidId : fluidId;
         Block? block = BlockAt(blockId);
         if (blockId != 0 && block == null)
         {

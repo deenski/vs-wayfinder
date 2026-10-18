@@ -16,8 +16,8 @@ namespace Wayfinding.Pathing.Grid;
 /// <see cref="CellClass.Walkable"/> otherwise;
 /// otherwise any collision box is <see cref="CellClass.Solid"/>.
 /// An unreadable sample is not classified: the caller leaves the cell <see cref="CellClass.Unknown"/>.
-/// When the sample has a collision box and a measured finite max Y2, <see cref="BlockCell.StepHeight"/> is that Y2
-/// in eighths of a block. NaN is left unmeasured. The class does not change, so a slab stays <see cref="CellClass.Solid"/>.
+/// When the sample has a collision box and a measured max Y2, <see cref="BlockCell.StepHeight"/> is that Y2
+/// in eighths of a block. The class does not change, so a slab stays <see cref="CellClass.Solid"/>.
 /// </remarks>
 public static class CellClassifier
 {
@@ -96,7 +96,7 @@ public static class CellClassifier
     private static BlockCell Classified(CellClass cls, in CellSample sample)
     {
         byte? step = null;
-        if (sample.HasCollision && sample.MaxCollisionY2 is float y2 && !float.IsNaN(y2))
+        if (sample.HasCollision && sample.MaxCollisionY2 is float y2)
         {
             step = QuantizeStepHeight(y2);
         }

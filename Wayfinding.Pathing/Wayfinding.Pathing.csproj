@@ -11,10 +11,6 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
-  <ItemGroup>
-    <InternalsVisibleTo Include="Wayfinding.Pathing.Tests" />
-  </ItemGroup>
-
   <!--
     Game-free library. The assembly name is the reference identity before the
     first comma, so a strong name matches. HintPaths are compared to the

@@ -24,9 +24,9 @@ namespace Wayfinding.Pathing.Grid;
 /// <item><term><see cref="Solid"/></term><description>Has a collision box tall enough to stand on and blocks
 /// the body: stone, soil, logs, planks, glass, closed doors, fences, and leaves when they have a collision box.
 /// Thin blocks with a small collision box (snow layers, slabs, stairs) are also <see cref="Solid"/>.
-/// <see cref="BlockCell.StepHeight"/> records the max collision-box Y2 in eighths.
-/// <see cref="Standability"/> and the climb model do not read it yet (a follow-up), so a slab on top of a
-/// block still reads as a 2-block climb and is blocked.</description></item>
+/// <see cref="BlockCell.StepHeight"/> records the max collision-box Y2 in eighths, but
+/// <see cref="Standability"/> and the climb model ignore it until KAN-26, so a slab on top of a block still
+/// reads as a 2-block climb and is blocked.</description></item>
 /// <item><term><see cref="Walkable"/></term><description>Occupied by a block, but nothing in it blocks you:
 /// you stand <i>in</i> it, not <i>on</i> it. It has no collision box: tall grass, flowers, crops, saplings,
 /// torches, open doors, and ladders (no climbing routes in v1). Moves through it cost the same as through air,

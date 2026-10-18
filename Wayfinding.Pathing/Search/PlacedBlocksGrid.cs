@@ -3,9 +3,9 @@ using Wayfinding.Pathing.Grid;
 namespace Wayfinding.Pathing.Search;
 
 /// <summary>
-/// A grid view with a few hypothetical blocks placed: those cells read as a full <see cref="CellClass.Solid"/>
-/// block (<see cref="BlockCell.StepHeight"/> 8). Lets build moves reuse <see cref="Cost.ClimbCostModel.Evaluate"/>
-/// unchanged. Reused within one search; not thread-safe and never shared.
+/// A grid view with a few hypothetical blocks placed: those cells read as <see cref="CellClass.Solid"/>. Lets
+/// build moves reuse <see cref="Cost.ClimbCostModel.Evaluate"/> unchanged. Reused within one search; not
+/// thread-safe and never shared.
 /// </summary>
 internal sealed class PlacedBlocksGrid : IBlockGrid
 {
@@ -32,7 +32,7 @@ internal sealed class PlacedBlocksGrid : IBlockGrid
     public CellClass GetClass(int x, int y, int z) => IsPlaced(x, y, z) ? CellClass.Solid : _inner.GetClass(x, y, z);
 
     public BlockCell GetCell(int x, int y, int z) =>
-        IsPlaced(x, y, z) ? new BlockCell(CellClass.Solid, CellFlags.None, 8) : _inner.GetCell(x, y, z);
+        IsPlaced(x, y, z) ? new BlockCell(CellClass.Solid) : _inner.GetCell(x, y, z);
 
     private bool IsPlaced(int x, int y, int z)
     {

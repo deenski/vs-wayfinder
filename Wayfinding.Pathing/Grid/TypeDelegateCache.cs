@@ -6,11 +6,12 @@ namespace Wayfinding.Pathing.Grid;
 /// Binds one delegate per runtime type and keeps that binding.
 /// </summary>
 /// <remarks>
-/// In single-player the client and server chunk types can differ, so a single static delegate is the
-/// wrong cache. A null delegate is the unsupported marker for that type and is reported once.
+/// The game adapter uses this for <c>GetBlockIdUnsafe(int, int)</c>. In single-player the client and
+/// server chunk types can differ, so a single static delegate is the wrong cache. A missing method is
+/// stored as no delegate and reported once per type.
 /// </remarks>
 /// <typeparam name="TDelegate">The bound delegate type.</typeparam>
-internal sealed class TypeDelegateCache<TDelegate>
+public sealed class TypeDelegateCache<TDelegate>
     where TDelegate : class
 {
     private readonly ConcurrentDictionary<Type, Slot> slots = new();

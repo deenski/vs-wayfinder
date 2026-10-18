@@ -59,15 +59,6 @@ public class CellClassifierTests
     }
 
     [Fact]
-    public void NanCollisionY2_StaysUnmeasured()
-    {
-        var sample = new CellSample(true, ObservedFluid.None, BlockId: 3, TraversalCost: 0, HasCollision: true, MaxCollisionY2: float.NaN);
-        Assert.True(CellClassifier.TryClassify(sample, out BlockCell cell));
-        Assert.Equal(CellClass.Solid, cell.Class);
-        Assert.Null(cell.StepHeight);
-    }
-
-    [Fact]
     public void Slab_StaysSolid_AndRecordsHalfHeight()
     {
         var sample = new CellSample(true, ObservedFluid.None, BlockId: 11, TraversalCost: 0, HasCollision: true, MaxCollisionY2: 0.5f);
