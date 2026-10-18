@@ -544,15 +544,20 @@ public class BuildPlannerTests
     // -------------------------------------------------------------- PR #10 round 2: budget status after a conflict
 
     /// <summary>
-    /// A node cap that runs out during (or before) a conflict re-plan is BudgetExhausted, never NoPath; any partial route
-    /// still follows the usual rules (no conflicts, valid moves). 1691 and 515 hit a real conflict first (Repairs 1);
-    /// 1357 is Senior's 50-node case (since dedupe it no longer conflicts, but the status must still not be NoPath).
+    /// A node cap that runs out during (or right at the start of) a conflict re-plan is BudgetExhausted, never NoPath;
+    /// any partial route still follows the usual rules (no conflicts, valid moves). The caps equal to the first
+    /// search's expansions leave the re-plan nothing, so the planner holds only a conflicting route (round 1 said
+    /// NoPath there). The 50-node caps are Senior's case: the re-plan starts and runs out part-way.
     /// </summary>
     [Theory]
+    [InlineData(1691, 1.0, 22, 1)]
+    [InlineData(1691, 0.5, 17, 1)]
+    [InlineData(1691, 0.0, 8, 1)]
+    [InlineData(2486, 0.0, 11, 1)]
+    [InlineData(515, 0.0, 93, 1)]
+    [InlineData(668, 0.0, 265, 1)]
     [InlineData(1691, 1.0, 50, 1)]
     [InlineData(1691, 0.5, 50, 1)]
-    [InlineData(515, 0.0, 94, 1)]
-    [InlineData(668, 0.0, 271, 1)]
     [InlineData(1357, 0.5, 50, 0)]
     public void NodeBudgetAfterConflict_IsBudgetExhausted(int seed, double penalty, int maxNodes, int repairs)
     {
@@ -573,7 +578,9 @@ public class BuildPlannerTests
     /// </summary>
     [Theory]
     [InlineData(515, 0.0, 1.0, 1)]
-    [InlineData(1691, 1.0, 1.0, 1)]
+    [InlineData(1691, 1.0, 2.0, 1)]
+    [InlineData(1691, 0.5, 2.0, 1)]
+    [InlineData(2486, 0.0, 2.0, 1)]
     [InlineData(668, 0.0, 0.5, 1)]
     [InlineData(1357, 0.5, 2.0, 0)]
     public void TimeBudgetAfterConflict_IsTimedOut(int seed, double penalty, double tickMs, int repairs)
