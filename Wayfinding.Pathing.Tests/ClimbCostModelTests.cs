@@ -179,6 +179,73 @@ public class ClimbCostModelTests
         Assert.Equal(BlockReason.NotStandable, Defaults.Evaluate(s, new GridPos(0, 1, 0), new GridPos(1, 1, 0)).Reason);
     }
 
+    // Diagonal (0,1,0) -> (1,1,1): destination standable; corner column (1,·,0) holds a known blocker at
+    // feet height and corner column (0,·,1) is Unknown. The sweep sees both; the known blocker must win.
+    [Theory]
+    [InlineData('#', BlockReason.Obstructed)]
+    [InlineData('L', BlockReason.Lava)]
+    [InlineData('!', BlockReason.Hazard)]
+    public void DiagonalSweep_KnownBlockerInOneCorner_WinsOverUnknownInTheOther(char blocker, BlockReason expected)
+    {
+        BlockGridSnapshot s = FakeGrid.FromLayers(
+        [
+            ["##", "##"],
+            ["." + blocker, "?."],
+            ["..", "?."],
+        ]);
+        var to = new GridPos(1, 1, 1);
+        Assert.Equal(StandKind.Ground, Standability.Classify(s, to));
+
+        MoveCost move = Defaults.Evaluate(s, new GridPos(0, 1, 0), to);
+
+        Assert.Equal(MoveVerdict.Blocked, move.Verdict);
+        Assert.Equal(expected, move.Reason);
+    }
+
+    [Fact]
+    public void DiagonalSweep_UnknownCornerAlone_IsUnknown()
+    {
+        BlockGridSnapshot s = FakeGrid.FromLayers([["##", "##"], ["..", "?."], ["..", "?."]]);
+        Assert.Equal(MoveVerdict.Unknown, Defaults.Evaluate(s, new GridPos(0, 1, 0), new GridPos(1, 1, 1)).Verdict);
+    }
+
+    // Climb (0,1,0) -> (1,2,0): the jump needs the source column clear up to y = 3 (one above the head).
+    [Theory]
+    [InlineData('L', MoveVerdict.Blocked, BlockReason.Lava)]
+    [InlineData('!', MoveVerdict.Blocked, BlockReason.Hazard)]
+    [InlineData('.', MoveVerdict.Ok, BlockReason.None)]
+    public void StraightClimb_LavaAboveTheSourceHead_IsBlocked(char aboveSourceHead, MoveVerdict verdict, BlockReason reason)
+    {
+        BlockGridSnapshot s = FakeGrid.FromLayers([["##"], [".#"], [".."], [aboveSourceHead + "."], [".."]]);
+        MoveCost move = Defaults.Evaluate(s, new GridPos(0, 1, 0), new GridPos(1, 2, 0));
+        Assert.Equal((verdict, reason), (move.Verdict, move.Reason));
+    }
+
+    // Drop (0,2,0) -> (1,1,0): falling in needs the destination column clear up to y = 3 (one above the head).
+    [Theory]
+    [InlineData('L', MoveVerdict.Blocked, BlockReason.Lava)]
+    [InlineData('!', MoveVerdict.Blocked, BlockReason.Hazard)]
+    [InlineData('.', MoveVerdict.Ok, BlockReason.None)]
+    public void StraightDrop_LavaAboveTheDestinationHead_IsBlocked(char aboveDestHead, MoveVerdict verdict, BlockReason reason)
+    {
+        BlockGridSnapshot s = FakeGrid.FromLayers([["##"], ["#."], [".."], ["." + aboveDestHead], [".."]]);
+        var to = new GridPos(1, 1, 0);
+        Assert.Equal(StandKind.Ground, Standability.Classify(s, to));
+        MoveCost move = Defaults.Evaluate(s, new GridPos(0, 2, 0), to);
+        Assert.Equal((verdict, reason), (move.Verdict, move.Reason));
+    }
+
+    [Fact]
+    public void StraightClimb_LavaInTheSweep_WinsOverAnUnknownDestinationHead()
+    {
+        // Destination head (1,3,0) is Unknown, so the destination itself classifies as Unknown; the lava at (0,3,0)
+        // in the source column's jump clearance must still make the move Blocked, not Unknown.
+        BlockGridSnapshot s = FakeGrid.FromLayers([["##"], [".#"], [".."], ["L?"], [".."]]);
+        Assert.Equal(StandKind.Unknown, Standability.Classify(s, new GridPos(1, 2, 0)));
+        MoveCost move = Defaults.Evaluate(s, new GridPos(0, 1, 0), new GridPos(1, 2, 0));
+        Assert.Equal((MoveVerdict.Blocked, BlockReason.Lava), (move.Verdict, move.Reason));
+    }
+
     [Fact]
     public void Evaluate_RejectsNonNeighbourMoves()
     {
