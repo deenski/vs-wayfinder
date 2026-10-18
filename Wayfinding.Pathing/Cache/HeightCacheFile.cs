@@ -58,9 +58,9 @@ public sealed record HeightCacheLoadResult(HeightCacheLoadStatus Status, IReadOn
 ///          4 chunk X, 4 chunk Z, 1 024 × 2 packed columns (<see cref="HeightChunk"/>)  = 2 056 bytes
 /// </code>
 /// <para>The file is exactly 24 + 2 056 N bytes, so it grows linearly with the explored area (~2 KB per chunk
-/// column). <see cref="Save"/> writes a sibling temp file, flushes it to disk and renames it over the old file,
-/// so a crash leaves either the old or the new cache. <see cref="Load"/> moves a damaged file aside to
-/// <c>&lt;path&gt;.corrupt</c> so the next save starts clean.</para>
+/// column). <see cref="Save"/> writes a uniquely named sibling temp file, flushes it to disk and renames it over
+/// the old file, so a crash leaves either the old or the new cache. <see cref="Load"/> moves a damaged file aside
+/// to <c>&lt;path&gt;.corrupt</c> so the next save starts clean, and deletes a leftover temp from a crash.</para>
 /// </remarks>
 public static class HeightCacheFile
 {
@@ -219,7 +219,9 @@ public static class HeightCacheFile
             Directory.CreateDirectory(dir);
         }
 
-        string temp = path + ".tmp";
+        // Unique name so a crash leftover cannot collide with a later save, and so loading one world cannot
+        // delete another save's temp file.
+        string temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
             using (var fs = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
@@ -245,15 +247,20 @@ public static class HeightCacheFile
     public static bool SaveIfDirty(HeightCache cache, string path, int dimension = 0)
     {
         ArgumentNullException.ThrowIfNull(cache);
-        if (!cache.IsDirty)
+        // One save at a time. The snapshot is taken under the cache gate and the file write happens after that
+        // gate is released, so the game thread can keep storing captures during the write. MarkSaved records the
+        // version that was snapshotted: a capture that landed during the write leaves the cache dirty.
+        lock (cache.SaveSync)
         {
-            return false;
-        }
+            if (!cache.TryCopyForSave(out long version, out IReadOnlyList<HeightChunk> snap))
+            {
+                return false;
+            }
 
-        long version = cache.Version;
-        Save(path, cache.Snapshot(), dimension);
-        cache.MarkSaved(version);
-        return true;
+            Save(path, snap, dimension);
+            cache.MarkSaved(version);
+            return true;
+        }
     }
 
     /// <summary>
@@ -267,13 +274,19 @@ public static class HeightCacheFile
     public static HeightCacheLoadResult Load(string path, int dimension = 0)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        TryDelete(path + ".tmp"); // a leftover from a crash mid-save; the real file is intact
+        DeleteLeftoverTemps(path); // a crash mid-save; the real file is intact
         byte[] bytes;
         try
         {
             if (!File.Exists(path))
             {
                 return new HeightCacheLoadResult(HeightCacheLoadStatus.Missing, [], null);
+            }
+
+            long length = new FileInfo(path).Length;
+            if (length < 0 || length > FileSize(MaxChunks))
+            {
+                return Quarantine(path, HeightCacheLoadStatus.BadHeader);
             }
 
             bytes = File.ReadAllBytes(path);
@@ -289,6 +302,29 @@ public static class HeightCacheFile
             return new HeightCacheLoadResult(status, chunks, null);
         }
 
+        return Quarantine(path, status);
+    }
+
+    /// <summary>Loads <paramref name="path"/> into <paramref name="cache"/> (replacing its contents; empty unless Loaded).</summary>
+    /// <param name="cache">The cache.</param>
+    /// <param name="path">The file.</param>
+    /// <param name="dimension">Dimension.</param>
+    /// <returns>The load result.</returns>
+    public static HeightCacheLoadResult LoadInto(HeightCache cache, string path, int dimension = 0)
+    {
+        ArgumentNullException.ThrowIfNull(cache);
+        // Hold the save lock across the read and the reset so a save cannot replace the file in between,
+        // and so Reset (which takes the same lock) cannot deadlock: the lock is reentrant.
+        lock (cache.SaveSync)
+        {
+            HeightCacheLoadResult r = Load(path, dimension);
+            cache.Reset(r.Chunks);
+            return r;
+        }
+    }
+
+    private static HeightCacheLoadResult Quarantine(string path, HeightCacheLoadStatus status)
+    {
         string? aside = path + ".corrupt";
         try
         {
@@ -302,17 +338,32 @@ public static class HeightCacheFile
         return new HeightCacheLoadResult(status, [], aside);
     }
 
-    /// <summary>Loads <paramref name="path"/> into <paramref name="cache"/> (replacing its contents; empty unless Loaded).</summary>
-    /// <param name="cache">The cache.</param>
-    /// <param name="path">The file.</param>
-    /// <param name="dimension">Dimension.</param>
-    /// <returns>The load result.</returns>
-    public static HeightCacheLoadResult LoadInto(HeightCache cache, string path, int dimension = 0)
+    private static void DeleteLeftoverTemps(string path)
     {
-        ArgumentNullException.ThrowIfNull(cache);
-        HeightCacheLoadResult r = Load(path, dimension);
-        cache.Reset(r.Chunks);
-        return r;
+        TryDelete(path + ".tmp");
+        string directory = Path.GetDirectoryName(path) ?? ".";
+        if (directory.Length == 0)
+        {
+            directory = ".";
+        }
+
+        if (!Directory.Exists(directory))
+        {
+            return;
+        }
+
+        string name = Path.GetFileName(path);
+        try
+        {
+            foreach (string tmp in Directory.EnumerateFiles(directory, name + ".*.tmp"))
+            {
+                TryDelete(tmp);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // best effort
+        }
     }
 
     private static void TryDelete(string path)
