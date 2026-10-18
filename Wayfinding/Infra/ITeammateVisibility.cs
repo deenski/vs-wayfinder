@@ -2,9 +2,11 @@ namespace Wayfinding.Infra;
 
 /// <summary>
 /// Whether a player may be targeted. Design §4: no line, marker, distance, or
-/// tether for anyone who is not a visible teammate. The argument is a player
-/// name or a uid, matching <c>ITeamService.IsVisibleTeammate</c> so KAN-21 can
-/// implement this interface with its existing method.
+/// tether for anyone who is not a visible teammate.
+/// The argument is the name typed into <c>.nav player</c>, or a uid.
+/// TeamService resolves a name with a client-side name-to-uid lookup through
+/// AllOnlinePlayers and fails closed: an unknown name is not visible.
+/// When no team service is passed, the default denies every name.
 /// </summary>
 public interface ITeammateVisibility
 {
@@ -12,7 +14,7 @@ public interface ITeammateVisibility
 }
 
 /// <summary>
-/// Denies every player. This is the stand-in until KAN-21's team service is wired.
+/// Denies every player. Used when no team service is passed in.
 /// </summary>
 public sealed class NoTeammateVisibility : ITeammateVisibility
 {

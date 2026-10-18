@@ -33,7 +33,11 @@ public readonly struct NavReply
 }
 
 /// <summary>
-/// Navigation target for one world. Main-thread only.
+/// Navigation target for one world.
+/// Main-thread only. <see cref="Current"/> is the field <c>current</c>, and both
+/// are read and written only on the game thread. <c>current</c> is not volatile:
+/// nothing reads it from another thread, and KAN-19 must keep reading it on the
+/// game thread too.
 /// TODO(KAN-19): WayfindingMapLayer reads <see cref="Current"/> and subscribes to
 /// <see cref="Changed"/> to draw the route. Draw nothing while <see cref="MapAllowed"/>
 /// is false. Ctrl+click and hotkeys call <see cref="SetWaypoint"/>, <see cref="SetCoordinate"/>,
@@ -57,6 +61,7 @@ public sealed class NavTargets
     private readonly ITeammateVisibility teammates;
     private NavTargetDocument document = new();
     private string? worldId;
+    // Main-thread only. There is no cross-thread reader.
     private NavTarget current = NavTarget.None;
     private bool seenWaypointList;
 
@@ -197,7 +202,7 @@ public sealed class NavTargets
         return NavReply.Success("Navigating to player \"" + name + "\".");
     }
 
-    public NavReply Coord(string? text, SpawnOrigin spawn, int? dimension = null)
+public NavReply Coord(string? text, SpawnOrigin spawn, int mapHeight, int? dimension = null)
     {
         if (!MapAllowed)
         {
@@ -209,7 +214,7 @@ public sealed class NavTargets
             return notReady;
         }
 
-        if (!NavCoordParser.TryParse(text, spawn, out var parsed, out var error))
+        if (!NavCoordParser.TryParse(text, spawn, mapHeight, out var parsed, out var error))
         {
             return NavReply.Fail(error);
         }

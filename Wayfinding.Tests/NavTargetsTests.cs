@@ -7,6 +7,7 @@ public class NavTargetsTests
     private static readonly Guid HomeId = Guid.Parse("3f2504e0-4f89-11d3-9a0c-0305e82c3301");
     private static readonly Guid CampId = Guid.Parse("6ba7b810-9dad-11d1-80b4-00c04fd430c8");
     private static readonly SpawnOrigin Spawn = new(512000, 512000);
+    private const int MapHeight = 256;
 
     [Fact]
     public void Set_clear_and_status_for_each_kind()
@@ -23,7 +24,7 @@ public class NavTargetsTests
         Assert.Equal(NavTargetKind.Player, nav.Current.Kind);
         Assert.Equal("Target: player \"Maili\"", nav.Status(null, null).Message);
 
-        var coord = nav.Coord("10 70 -4", Spawn);
+        var coord = nav.Coord("10 70 -4", Spawn, MapHeight);
         Assert.True(coord.Ok);
         Assert.Equal("Navigating to 10, 70, -4 (absolute 512010, 70, 511996).", coord.Message);
         Assert.Equal(
@@ -42,7 +43,7 @@ public class NavTargetsTests
     public void X_z_target_status_omits_y()
     {
         var nav = Open();
-        nav.Coord("10 -4", Spawn);
+        nav.Coord("10 -4", Spawn, MapHeight);
 
         Assert.Null(nav.Current.Coordinate!.Value.Y);
         Assert.Equal(
@@ -212,7 +213,7 @@ public class NavTargetsTests
 
         Assert.Equal(NavTargets.MapDisabledMessage, nav.SelectWaypoint("0", new List<WaypointRef> { new(CampId, "Camp") }).Message);
         Assert.Equal(NavTargets.MapDisabledMessage, nav.Player("Maili").Message);
-        Assert.Equal(NavTargets.MapDisabledMessage, nav.Coord("1 2", Spawn).Message);
+        Assert.Equal(NavTargets.MapDisabledMessage, nav.Coord("1 2", Spawn, MapHeight).Message);
         Assert.Equal(NavTargets.MapDisabledMessage, nav.SetCoordinate(new AbsoluteCoord(1, 2, 3), Spawn).Message);
         Assert.Equal(NavTargets.MapDisabledMessage, nav.Off().Message);
         Assert.Equal(NavTargets.MapDisabledMessage, nav.Status(Spawn, null).Message);
@@ -232,7 +233,7 @@ public class NavTargetsTests
         var nav = Open();
         nav.SetWaypoint(HomeId, "Home");
 
-        var coord = nav.Coord("nope", Spawn);
+        var coord = nav.Coord("nope", Spawn, MapHeight);
         var player = nav.Player("  ");
         var waypoint = nav.SelectWaypoint("missing", new List<WaypointRef> { new(CampId, "Camp") });
 
