@@ -13,8 +13,8 @@ namespace Wayfinding.Snapshot;
 /// through <see cref="Stats"/> for <c>.nav stats</c>.
 /// </summary>
 /// <remarks>
-/// This system does not register a chat command. <c>.nav</c> belongs to whoever calls
-/// <c>GetOrCreate("nav")</c>; this class only exposes <see cref="LastSnapshotMilliseconds"/>.
+/// This system does not register a chat command. Nav commands stay in <c>NavCommands</c>.
+/// This class only exposes <see cref="LastSnapshotMilliseconds"/>.
 /// </remarks>
 public sealed class SnapshotBuilderSystem : ModSystem
 {

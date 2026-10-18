@@ -16,11 +16,12 @@ public class CellClassifierTests
     [Fact]
     public void Classification_FollowsTheContractOrder()
     {
-        Assert.Equal(CellClass.Solid, Classify(Fluid: ObservedFluid.Lava, BlockId: 9, TraversalCost: 99999, HasCollision: true));
+        Assert.Equal(CellClass.Lava, Classify(Fluid: ObservedFluid.Lava, BlockId: 9, TraversalCost: 99999, HasCollision: true));
         Assert.Equal(CellClass.Lava, Classify(Fluid: ObservedFluid.Lava, BlockId: 9, TraversalCost: 99999, HasCollision: false));
         Assert.Equal(CellClass.Hazard, Classify(Fluid: ObservedFluid.Water, BlockId: 4, TraversalCost: 10000, HasCollision: false));
-        Assert.Equal(CellClass.Solid, Classify(Fluid: ObservedFluid.Water, BlockId: 4, TraversalCost: 10000, HasCollision: true));
+        Assert.Equal(CellClass.Hazard, Classify(Fluid: ObservedFluid.Water, BlockId: 4, TraversalCost: 10000, HasCollision: true));
         Assert.Equal(CellClass.Water, Classify(Fluid: ObservedFluid.Water, BlockId: 4, TraversalCost: 5, HasCollision: false));
+        Assert.Equal(CellClass.Solid, Classify(Fluid: ObservedFluid.Water, BlockId: 4, TraversalCost: 5, HasCollision: true));
         Assert.Equal(CellClass.Hazard, Classify(Fluid: ObservedFluid.None, BlockId: 12, TraversalCost: 10000, HasCollision: true));
         Assert.Equal(CellClass.Walkable, Classify(Fluid: ObservedFluid.None, BlockId: 7, TraversalCost: 9999, HasCollision: false));
         Assert.Equal(CellClass.Air, Classify(Fluid: ObservedFluid.None, BlockId: 0, TraversalCost: 0, HasCollision: false));
@@ -45,17 +46,37 @@ public class CellClassifierTests
     }
 
     [Fact]
-    public void CollisionBoxInWater_IsSolid_AndPlainWaterStaysWater()
+    public void CollisionBoxInWater_IsSolid()
     {
         var blocked = new CellSample(true, ObservedFluid.Water, BlockId: 11, TraversalCost: 5, HasCollision: true, MaxCollisionY2: 1f);
         Assert.True(CellClassifier.TryClassify(blocked, out BlockCell solid));
         Assert.Equal(CellClass.Solid, solid.Class);
         Assert.Equal((byte)8, solid.StepHeight);
+    }
 
+    [Fact]
+    public void WaterWithNoCollisionBox_IsWater()
+    {
         var water = new CellSample(true, ObservedFluid.Water, BlockId: 4, TraversalCost: 5, HasCollision: false);
         Assert.True(CellClassifier.TryClassify(water, out BlockCell swim));
         Assert.Equal(CellClass.Water, swim.Class);
         Assert.Null(swim.StepHeight);
+    }
+
+    [Fact]
+    public void CollisionBoxInBoilingWater_IsHazard()
+    {
+        var boiling = new CellSample(true, ObservedFluid.Water, BlockId: 4, TraversalCost: 10000, HasCollision: true, MaxCollisionY2: 1f);
+        Assert.True(CellClassifier.TryClassify(boiling, out BlockCell cell));
+        Assert.Equal(CellClass.Hazard, cell.Class);
+    }
+
+    [Fact]
+    public void CollisionBoxInLava_IsLava()
+    {
+        var lava = new CellSample(true, ObservedFluid.Lava, BlockId: 9, TraversalCost: 99999, HasCollision: true, MaxCollisionY2: 1f);
+        Assert.True(CellClassifier.TryClassify(lava, out BlockCell cell));
+        Assert.Equal(CellClass.Lava, cell.Class);
     }
 
     [Fact]

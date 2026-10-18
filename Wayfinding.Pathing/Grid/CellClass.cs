@@ -13,12 +13,12 @@ namespace Wayfinding.Pathing.Grid;
 /// </para>
 /// <para>
 /// Mapping for KAN-29 / WF-15 (SnapshotBuilder). Classify on the main thread from the live
-/// accessor, in this order: a collision box that also holds a fluid is <see cref="Solid"/> (fluid wins only
-/// when there is no collision box); then the fluid layer (water is <see cref="Water"/>, lava is <see cref="Lava"/>,
-/// and boiling water is <see cref="Hazard"/>); then <c>GetTraversalCost(pos, Humanoid)</c> of 10000 or more is
-/// <see cref="Hazard"/>; then a block with no collision boxes is <see cref="Air"/> for block id 0 and
-/// <see cref="Walkable"/> otherwise; any remaining collision box is <see cref="Solid"/>; an unloaded or null
-/// block stays <see cref="Unknown"/>.
+/// accessor, in this order: lava is <see cref="Lava"/> even with a collision box; then
+/// <c>GetTraversalCost(pos, Humanoid)</c> of 10000 or more is <see cref="Hazard"/> (boiling water, with or
+/// without a box); then any collision box is <see cref="Solid"/>, so a fence or slab in ordinary water is a
+/// blocker and records <see cref="BlockCell.StepHeight"/>; then water with no collision box is
+/// <see cref="Water"/>; then a block with no collision boxes is <see cref="Air"/> for block id 0 and
+/// <see cref="Walkable"/> otherwise; an unloaded or null block stays <see cref="Unknown"/>.
 /// </para>
 /// <list type="table">
 /// <item><term><see cref="Solid"/></term><description>Has a collision box tall enough to stand on and blocks

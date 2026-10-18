@@ -5,16 +5,14 @@ namespace Wayfinding.Pathing.Grid;
 /// </summary>
 /// <remarks>
 /// Order, from the <see cref="CellClass"/> contract:
-/// a collision box that also holds water or another fluid is <see cref="CellClass.Solid"/>
-/// (fluid wins only when the cell has no collision box);
-/// otherwise a liquid is <see cref="CellClass.Water"/> or <see cref="CellClass.Lava"/>
-/// (boiling water is a liquid whose Humanoid traversal cost is 99999, so it becomes
-/// <see cref="CellClass.Hazard"/>);
-/// otherwise a Humanoid traversal cost of <see cref="CellSample.HazardTraversalCost"/> or more is
-/// <see cref="CellClass.Hazard"/>;
+/// <see cref="CellClass.Lava"/> first, even when the cell also has a collision box;
+/// then a Humanoid traversal cost of <see cref="CellSample.HazardTraversalCost"/> or more is
+/// <see cref="CellClass.Hazard"/> (boiling water, with or without a collision box);
+/// then any collision box is <see cref="CellClass.Solid"/>, including a fence or slab in ordinary water,
+/// and <see cref="BlockCell.StepHeight"/> comes from that box;
+/// then water with no collision box is <see cref="CellClass.Water"/>;
 /// otherwise a block with no collision boxes is <see cref="CellClass.Air"/> for block id 0 and
-/// <see cref="CellClass.Walkable"/> otherwise;
-/// otherwise any collision box is <see cref="CellClass.Solid"/>.
+/// <see cref="CellClass.Walkable"/> otherwise.
 /// An unreadable sample is not classified: the caller leaves the cell <see cref="CellClass.Unknown"/>.
 /// When the sample has a collision box and a measured max Y2, <see cref="BlockCell.StepHeight"/> is that Y2
 /// in eighths of a block. The class does not change, so a slab stays <see cref="CellClass.Solid"/>.
@@ -35,24 +33,9 @@ public static class CellClassifier
             return false;
         }
 
-        // A fence, slab, or stairs block sitting in water is a blocker, not a swim.
-        if (sample.HasCollision && sample.Fluid != ObservedFluid.None)
-        {
-            cell = Classified(CellClass.Solid, sample);
-            return true;
-        }
-
         if (sample.Fluid == ObservedFluid.Lava)
         {
             cell = Classified(CellClass.Lava, sample);
-            return true;
-        }
-
-        if (sample.Fluid == ObservedFluid.Water)
-        {
-            cell = Classified(
-                sample.TraversalCost >= CellSample.HazardTraversalCost ? CellClass.Hazard : CellClass.Water,
-                sample);
             return true;
         }
 
@@ -62,13 +45,19 @@ public static class CellClassifier
             return true;
         }
 
-        if (!sample.HasCollision)
+        if (sample.HasCollision)
         {
-            cell = Classified(sample.BlockId == 0 ? CellClass.Air : CellClass.Walkable, sample);
+            cell = Classified(CellClass.Solid, sample);
             return true;
         }
 
-        cell = Classified(CellClass.Solid, sample);
+        if (sample.Fluid == ObservedFluid.Water)
+        {
+            cell = Classified(CellClass.Water, sample);
+            return true;
+        }
+
+        cell = Classified(sample.BlockId == 0 ? CellClass.Air : CellClass.Walkable, sample);
         return true;
     }
 

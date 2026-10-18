@@ -293,11 +293,14 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
         float traversal = block.GetTraversalCost(pos, EnumAICreatureType.Humanoid);
         guard.AssertMainThread();
         bool collision = TryMaxCollisionY2(block.GetCollisionBoxes(blocks, pos), out float maxY2);
+        // Carry the liquid and the solid block: the higher traversal cost feeds the hazard rule,
+        // and the step height is the solid block's collision box.
+        float cost = kind != ObservedFluid.None ? Math.Max(fluidCost, traversal) : traversal;
         sample = new CellSample(
             true,
             kind,
             block.Id,
-            kind != ObservedFluid.None ? fluidCost : traversal,
+            cost,
             collision,
             collision ? maxY2 : null);
         return true;

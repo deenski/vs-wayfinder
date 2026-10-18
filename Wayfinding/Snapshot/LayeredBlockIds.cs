@@ -20,10 +20,17 @@ namespace Wayfinding.Snapshot;
 internal static class LayeredBlockIds
 {
     private static readonly TypeDelegateCache<global::System.Func<IChunkBlocks, int, int, int>> cache = new();
+    private static readonly Action<Type> warnForType = static type => warn?.Invoke(MissingMessage(type));
+    private static Action<string>? warn;
 
     public static bool TryRead(IChunkBlocks data, int index, int layer, Action<string>? logMissing, out int id)
     {
-        if (!cache.TryGet(data.GetType(), Bind, logMissing == null ? null : type => logMissing(MissingMessage(type)), out global::System.Func<IChunkBlocks, int, int, int>? read)
+        if (logMissing != null)
+        {
+            warn = logMissing;
+        }
+
+        if (!cache.TryGet(data.GetType(), Bind, logMissing == null ? null : warnForType, out global::System.Func<IChunkBlocks, int, int, int>? read)
             || read == null)
         {
             id = 0;
