@@ -17,6 +17,20 @@ Vintage Story game files (DLLs, server archives) are never committed or redistri
 export VINTAGE_STORY=/path/to/vintagestory
 ```
 
+## Setting up a fresh box
+
+[`scripts/bootstrap-box.sh`](scripts/bootstrap-box.sh) reads the SDK version from `global.json` and installs that exact .NET SDK into `~/.dotnet` using `https://dot.net/v1/dotnet-install.sh`. If `~/.dotnet/dotnet --list-sdks` already lists that version, it skips the install. It prints the `PATH` export to use. It does not download the game or a server.
+
+```bash
+./scripts/bootstrap-box.sh
+```
+
+Pass a directory to clone `https://github.com/deenski/vs-wayfinder.git` over HTTPS, or to `git fetch` when that directory is already a clone of that URL:
+
+```bash
+./scripts/bootstrap-box.sh ~/src/vs-wayfinder
+```
+
 ## Build
 
 ```bash

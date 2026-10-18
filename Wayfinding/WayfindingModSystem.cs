@@ -13,6 +13,7 @@ public class WayfindingModSystem : ModSystem
 {
     private ICoreClientAPI? capi;
     private TeamService? _teams;
+    private ClientNavSession? navigation;
 
     public ITeamService? Teams => _teams;
 
@@ -23,6 +24,15 @@ public class WayfindingModSystem : ModSystem
     public IWayfindingLog Log { get; private set; } = null!;
 
     public RenderGuard RenderGuard { get; private set; } = null!;
+
+    /// <summary>
+    /// Active navigation target. Null on the server.
+    /// TODO(KAN-19): WayfindingMapLayer reads <see cref="NavTargets"/> to draw the
+    /// route, and draws nothing while MapAllowed is false. Ctrl+click and hotkeys
+    /// call the same set and clear methods. Call NotifyWaypointDeleted when the
+    /// tracked waypoint is removed.
+    /// </summary>
+    public NavTargets? NavTargets => navigation?.Targets;
 
     public bool IsEnabled(Feature feature)
     {
@@ -48,10 +58,13 @@ public class WayfindingModSystem : ModSystem
         }
 
         api.Event.LevelFinalize += OnLevelFinalize;
+        api.Event.LeaveWorld += OnLeaveWorld;
         // NavCommands owns the one .nav root. share and team are subcommands of it.
+        // NavTargetCommands adds waypoint, player, coord, off, and status on that same root.
         _teams = new TeamService(api, Log);
         NavCommands.Register(api, this, _teams);
         _teams.Start();
+        navigation = NavTargetCommands.Register(api, this, _teams);
     }
 
     public override void StartServerSide(ICoreServerAPI api)
@@ -63,6 +76,9 @@ public class WayfindingModSystem : ModSystem
     {
         _teams?.Dispose();
         _teams = null;
+        navigation?.Dispose();
+        navigation = null;
+        base.Dispose();
     }
 
     private void RunGate()
@@ -85,5 +101,11 @@ public class WayfindingModSystem : ModSystem
         }
 
         Gate.Notify(new GateNotice(capi));
+        navigation?.OnLevelFinalize();
+    }
+
+    private void OnLeaveWorld()
+    {
+        navigation?.OnLeaveWorld();
     }
 }

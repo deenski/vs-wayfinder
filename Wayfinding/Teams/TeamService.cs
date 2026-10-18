@@ -14,7 +14,7 @@ namespace Wayfinding.Teams;
 /// Client adapter. Reads the local player's groups, posts and receives share
 /// announcements, and remembers the local share flag per world.
 /// </summary>
-public sealed class TeamService : ITeamService, IDisposable
+public sealed class TeamService : ITeamService, ITeammateVisibility, IDisposable
 {
     public const string ConfigName = "wayfinding-teams.json";
 
@@ -63,9 +63,49 @@ public sealed class TeamService : ITeamService, IDisposable
         }
     }
 
-    public bool IsVisibleTeammate(string? uid)
+    public bool IsVisibleTeammate(string? playerNameOrUid)
     {
-        return _model.IsVisibleTeammate(uid);
+        if (_model.IsVisibleTeammate(playerNameOrUid))
+        {
+            return true;
+        }
+
+        var uid = UidForOnlineName(playerNameOrUid);
+        return uid is not null && _model.IsVisibleTeammate(uid);
+    }
+
+    private string? UidForOnlineName(string? name)
+    {
+        if (string.IsNullOrEmpty(name))
+        {
+            return null;
+        }
+
+        var players = _capi.World?.AllOnlinePlayers;
+        if (players is null)
+        {
+            return null;
+        }
+
+        string? found = null;
+        foreach (var player in players)
+        {
+            if (player is null
+                || string.IsNullOrEmpty(player.PlayerUID)
+                || !string.Equals(player.PlayerName, name, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (found is not null && !string.Equals(found, player.PlayerUID, StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            found = player.PlayerUID;
+        }
+
+        return found;
     }
 
     public IReadOnlyCollection<string> GetVisibleTeammates()
