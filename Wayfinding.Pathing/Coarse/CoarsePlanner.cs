@@ -16,7 +16,11 @@ public enum CoarseStatus : byte
     /// <summary>All reachable revealed terrain was searched, no Unknown was met, and the goal was not reached.</summary>
     NoPath,
 
-    /// <summary>The node budget ran out; the corridor ends at the expanded node closest to the goal plus an Unknown segment.</summary>
+    /// <summary>
+    /// The node budget ran out; the corridor ends at the open (generated, not yet expanded) node closest to the goal
+    /// by h (ties: lower g, then cell X, cell Z, component), plus an Unknown segment. Same rule as
+    /// <see cref="FineSearchStatus.BudgetExhausted"/>.
+    /// </summary>
     BudgetExhausted,
 
     /// <summary>The cancellation token fired. No corridor.</summary>
@@ -27,6 +31,9 @@ public enum CoarseStatus : byte
 
     /// <summary>The goal column is known and impassable (wall, lava).</summary>
     InvalidGoal,
+
+    /// <summary>The time budget ran out. Partial corridor chosen as for <see cref="BudgetExhausted"/>.</summary>
+    TimedOut,
 }
 
 /// <summary>One straight piece of a coarse route.</summary>
@@ -52,7 +59,11 @@ public sealed record CoarseRoute(
     int Expanded,
     int CellsBuilt)
 {
-    internal IReadOnlyList<SegmentKind> WaypointKinds { get; init; } = [];
+    /// <summary>Rendering class of the piece ending at each waypoint (index 0, the start, is Walk): Swim for mostly-water nodes.</summary>
+    public IReadOnlyList<SegmentKind> WaypointKinds { get; init; } = [];
+
+    /// <summary>Water fraction of the node behind each waypoint (0 for the start), used for <see cref="CoarsePlanner.EdgeCost"/>.</summary>
+    public IReadOnlyList<double> WaypointWater { get; init; } = [];
 
     /// <summary>True when the corridor reaches the goal.</summary>
     public bool Found => Status == CoarseStatus.Found;
@@ -84,14 +95,43 @@ public sealed record CoarseRoute(
 /// <summary>Inputs for <see cref="CoarsePlanner"/>.</summary>
 public sealed record CoarsePlannerOptions
 {
-    /// <summary>Defaults: default cost model, 200 000 nodes.</summary>
+    /// <summary>Defaults: default cost model, 50 000 nodes, no time limit.</summary>
     public static CoarsePlannerOptions Default { get; } = new();
 
     /// <summary>The cost model (penalties, MaxClimb/MaxDrop, water). Default <see cref="ClimbCostOptions.Default"/>.</summary>
     public ClimbCostModel Model { get; init; } = new();
 
-    /// <summary>Coarse nodes expanded before giving up. Default 200 000. ≥ 1.</summary>
-    public int MaxNodes { get; init; } = 200_000;
+    /// <summary>
+    /// Coarse nodes expanded before giving up. Default 50 000 (a 2 000-block route needs about 3 000; each node holds
+    /// a few hundred bytes of state and cell data, so this bounds memory to tens of MB). ≥ 1.
+    /// </summary>
+    public int MaxNodes { get; init; } = 50_000;
+
+    /// <summary>Wall-clock budget, or null for none. Checked every <see cref="TimeCheckInterval"/> expansions.</summary>
+    public TimeSpan? MaxTime { get; init; }
+
+    /// <summary>Clock for <see cref="MaxTime"/>. Default <see cref="TimeProvider.System"/>; tests pass a fake.</summary>
+    public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
+
+    /// <summary>How many expansions pass between clock reads.</summary>
+    public const int TimeCheckInterval = 16;
+
+    /// <summary>Throws if any value is out of range.</summary>
+    /// <returns>This instance.</returns>
+    /// <exception cref="ArgumentNullException">A required value is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A value is out of range.</exception>
+    public CoarsePlannerOptions Validate()
+    {
+        ArgumentNullException.ThrowIfNull(Model, nameof(Model));
+        ArgumentNullException.ThrowIfNull(TimeProvider, nameof(TimeProvider));
+        ArgumentOutOfRangeException.ThrowIfLessThan(MaxNodes, 1, nameof(MaxNodes));
+        if (MaxTime is { } t && t < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaxTime), t, "MaxTime must not be negative.");
+        }
+
+        return this;
+    }
 }
 
 /// <summary>
@@ -110,8 +150,13 @@ public sealed record CoarsePlannerOptions
 /// <para><b>Heuristic</b>: Euclidean horizontal distance plus the vertical penalties to the goal: consistent for
 /// these edge costs. Ties are broken on (f, h, cell X, cell Z, component), so results are deterministic.</para>
 /// <para><b>Unrevealed terrain</b> is never planned through. If the goal cannot be reached, the corridor runs to
-/// the frontier node closest to the goal (lowest h, then lowest g) and ends in <b>one</b> straight Unknown segment
-/// to the goal. Budget exhaustion ends the same way at the expanded node closest to the goal.</para>
+/// the expanded frontier node closest to the goal (lowest h, then lowest g, cell X, cell Z, component) and ends in
+/// <b>one</b> straight Unknown segment to the goal. (The fine search ranks its Unknown boundary by f instead; at
+/// coarse scale a min-f frontier next to the start, such as the edge of the revealed map, would beat real progress.)
+/// Node budget and time-out end the same way at the <b>open</b> node closest to the goal, with the same (h, g, …)
+/// order: the rule <see cref="FineAStar"/> uses for its budgets.</para>
+/// <para><b>Cost scale.</b> Coarse costs are an estimate: Euclidean distance between representatives and net Δy
+/// only, so rolling terrain is undercharged compared with the fine search's per-step ups and downs.</para>
 /// </remarks>
 public static class CoarsePlanner
 {
@@ -156,8 +201,8 @@ public static class CoarsePlanner
     {
         ArgumentNullException.ThrowIfNull(heights);
         options ??= CoarsePlannerOptions.Default;
-        ArgumentNullException.ThrowIfNull(options.Model);
-        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxNodes, 1);
+        options.Validate();
+        long t0 = options.TimeProvider.GetTimestamp();
         ClimbCostOptions o = options.Model.Options;
         var graph = new CoarseGraph(heights, o);
 
@@ -185,8 +230,8 @@ public static class CoarsePlanner
         open.Enqueue(startNode.Value, new Key(s0.H, s0.H, startNode.Value.Cx, startNode.Value.Cz, startNode.Value.Index));
 
         int expanded = 0;
-        CoarseNodeId? bestExpanded = null, bestFrontier = null;
-        Key bestExpandedKey = default, bestFrontierKey = default;
+        CoarseNodeId? bestFrontier = null;
+        Key bestFrontierKey = default;
 
         // The start node is represented by the start position itself; every other node by its representative column.
         GridPos PosOf(CoarseNodeId id) => id == startNode.Value ? startRep : graph.Get(id).Rep;
@@ -211,7 +256,13 @@ public static class CoarsePlanner
 
             if (expanded >= options.MaxNodes)
             {
-                return Build(CoarseStatus.BudgetExhausted, bestExpanded ?? startNode.Value, goal);
+                return Build(CoarseStatus.BudgetExhausted, ClosestOpen(), goal);
+            }
+
+            if (options.MaxTime is { } maxTime && expanded % CoarsePlannerOptions.TimeCheckInterval == 0
+                && options.TimeProvider.GetElapsedTime(t0) > maxTime)
+            {
+                return Build(CoarseStatus.TimedOut, ClosestOpen(), goal);
             }
 
             st.Closed = true;
@@ -220,12 +271,6 @@ public static class CoarsePlanner
             // Partial routes end where the remaining straight distance is smallest: rank by (h, g, id), not by f, so
             // a frontier next to the start (with an optimistic f) never beats real progress towards the goal.
             var thisKey = new Key(st.H, st.G, id.Cx, id.Cz, id.Index);
-            if (bestExpanded is null || KeyComparer.Instance.Compare(thisKey, bestExpandedKey) < 0)
-            {
-                bestExpanded = id;
-                bestExpandedKey = thisKey;
-            }
-
             if (comp.Frontier && (bestFrontier is null || KeyComparer.Instance.Compare(thisKey, bestFrontierKey) < 0))
             {
                 bestFrontier = id;
@@ -260,6 +305,30 @@ public static class CoarsePlanner
         return bestFrontier is { } bf
             ? Build(CoarseStatus.UnknownBoundary, bf, goal)
             : CoarseRoute.Empty(CoarseStatus.NoPath, expanded, graph.CellsBuilt);
+
+        // Budget / time-out fallback: the open node nearest the goal by (h, g, cx, cz, index). Its parent is expanded,
+        // so its chain is valid. One O(n) scan, only when giving up. The dequeued node itself is still open.
+        CoarseNodeId ClosestOpen()
+        {
+            CoarseNodeId? best = null;
+            Key bestKey = default;
+            foreach ((CoarseNodeId nid, NodeState ns) in states)
+            {
+                if (ns.Closed)
+                {
+                    continue;
+                }
+
+                var k = new Key(ns.H, ns.G, nid.Cx, nid.Cz, nid.Index);
+                if (best is null || KeyComparer.Instance.Compare(k, bestKey) < 0)
+                {
+                    best = nid;
+                    bestKey = k;
+                }
+            }
+
+            return best ?? startNode.Value;
+        }
 
         CoarseRoute Build(CoarseStatus status, CoarseNodeId end, GridPos? unknownTo)
         {
@@ -314,7 +383,7 @@ public static class CoarsePlanner
             }
 
             UnknownSegment? unknown = unknownTo is { } to ? new UnknownSegment(waypoints[^1], to) : null;
-            return new CoarseRoute(status, cost, waypoints, cells, unknown, expanded, graph.CellsBuilt) { WaypointKinds = kinds };
+            return new CoarseRoute(status, cost, waypoints, cells, unknown, expanded, graph.CellsBuilt) { WaypointKinds = kinds, WaypointWater = water };
         }
     }
 

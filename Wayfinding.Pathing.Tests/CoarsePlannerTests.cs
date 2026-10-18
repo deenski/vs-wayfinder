@@ -58,15 +58,40 @@ public class CoarsePlannerTests
 
     // -------------------------------------------------------------- WF-13 AC
 
-    [Fact]
-    public void TwoThousandBlockRoute_PlansWellUnder250ms()
+    private static (HeightGridSnapshot Heights, GridPos Start, GridPos Goal) TwoThousandBlockTerrain()
     {
         HeightGridSnapshot heights = Rolling(2048, 96, seed: 7);
-        GridPos start = Surface(heights, 8, 48);
-        GridPos goal = Surface(heights, 2008, 48);
-        CoarseRoute r = CoarsePlanner.Plan(heights, start, goal);
-        Assert.Equal(CoarseStatus.Found, r.Status);
+        return (heights, Surface(heights, 8, 48), Surface(heights, 2008, 48));
+    }
 
+    /// <summary>
+    /// The 2 000-block AC, asserted on deterministic work counts (PR #9 review, must-fix 3); the 250 ms wall-clock
+    /// check is the opt-in <see cref="TwoThousandBlockRoute_PlansUnder250Ms"/>.
+    /// </summary>
+    [Fact]
+    public void TwoThousandBlockRoute_IsPlannedWithBoundedWork()
+    {
+        (HeightGridSnapshot heights, GridPos start, GridPos goal) = TwoThousandBlockTerrain();
+        CoarseRoute r = CoarsePlanner.Plan(heights, start, goal);
+
+        Assert.Equal(CoarseStatus.Found, r.Status);
+        Assert.Equal(goal, r.Waypoints[^1]);
+        Assert.True(GridPos.HorizontalDistance(start, goal) >= 2000);
+        // Measured 2 913 nodes and 3 398 cells. A slower search shows up here first, independent of the machine.
+        Assert.InRange(r.Expanded, 1, 3_200);
+        Assert.InRange(r.CellsBuilt, 1, 3_700);
+        CoarseRoute again = CoarsePlanner.Plan(heights, start, goal);
+        Assert.Equal((r.Expanded, r.CellsBuilt, r.Cost), (again.Expanded, again.CellsBuilt, again.Cost));
+        Assert.Equal(r.Waypoints, again.Waypoints);
+    }
+
+    /// <summary>The wall-clock AC itself: opt-in, Release only (see <see cref="PerfFactAttribute"/>).</summary>
+    [PerfFact]
+    [Trait("Category", "Perf")]
+    public void TwoThousandBlockRoute_PlansUnder250Ms()
+    {
+        (HeightGridSnapshot heights, GridPos start, GridPos goal) = TwoThousandBlockTerrain();
+        CoarseRoute r = CoarsePlanner.Plan(heights, start, goal);
         TimeSpan best = TimeSpan.MaxValue;
         for (int i = 0; i < 5; i++)
         {
@@ -77,8 +102,6 @@ public class CoarsePlannerTests
 
         Console.WriteLine($"2000-block coarse route: {best.TotalMilliseconds:F1} ms, {r.Expanded} nodes, {r.CellsBuilt} cells, {r.Waypoints.Count} waypoints");
         Assert.Equal(CoarseStatus.Found, r.Status);
-        Assert.Equal(goal, r.Waypoints[^1]);
-        Assert.True(GridPos.HorizontalDistance(start, goal) >= 2000);
         Assert.True(best.TotalMilliseconds < 250, $"took {best.TotalMilliseconds:F1} ms");
     }
 

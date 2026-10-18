@@ -170,7 +170,10 @@ public static class HeightGrid
     /// <summary>
     /// Derives a height grid from block terrain, column by column: scanning down from <paramref name="yTop"/>, the
     /// first occupiable position (<see cref="Standability"/>) gives Land or Water at that feet Y; a dangerous position
-    /// met first gives Lava; a column with no occupiable position is Blocked if all of it is known, else Unknown.
+    /// met first gives Lava when lava is involved and Blocked for other hazards; a column with no occupiable position
+    /// is Blocked if all of it is known, else Unknown. A position whose feet or support cell is Unknown counts as
+    /// unrevealed, so an unloaded support never turns a column into Blocked (that would hide a frontier and could
+    /// turn an <see cref="Coarse.CoarseStatus.UnknownBoundary"/> into a false NoPath).
     /// </summary>
     /// <param name="grid">Block terrain.</param>
     /// <param name="originX">Lowest X.</param>
@@ -210,12 +213,16 @@ public static class HeightGrid
 
                     if (k == StandKind.Dangerous)
                     {
-                        col = new HeightColumn(ColumnKind.Lava, feet.Y);
+                        bool lava = grid.GetClass(feet) == CellClass.Lava || (y > int.MinValue && grid.GetClass(x, (int)y - 1, z) == CellClass.Lava);
+                        col = new HeightColumn(lava ? ColumnKind.Lava : ColumnKind.Blocked, feet.Y);
                         break;
                     }
 
-                    // Unknown only at the very top (head above the window) is not evidence of an unrevealed column.
-                    sawUnknown |= k == StandKind.Unknown && grid.GetClass(feet) == CellClass.Unknown;
+                    // Unknown feet or support is an unrevealed column. Unknown only in the head cells at the very top
+                    // (above the window) is not evidence of one.
+                    sawUnknown |= k == StandKind.Unknown
+                        && (grid.GetClass(feet) == CellClass.Unknown
+                            || (y > int.MinValue && grid.GetClass(x, (int)y - 1, z) == CellClass.Unknown));
                 }
 
                 if (col.Kind == ColumnKind.Blocked && sawUnknown)

@@ -197,11 +197,9 @@ internal sealed class CoarseGraph
     private void BuildEdges(Cell cell)
     {
         var edges = new List<CoarseNodeId>[cell.Components.Count];
-        var seen = new HashSet<CoarseNodeId>[cell.Components.Count];
         for (int k = 0; k < edges.Length; k++)
         {
-            edges[k] = new List<CoarseNodeId>();
-            seen[k] = new HashSet<CoarseNodeId>();
+            edges[k] = new List<CoarseNodeId>(4);
         }
 
         int x0 = cell.Cx << Shift, z0 = cell.Cz << Shift;
@@ -245,7 +243,8 @@ internal sealed class CoarseGraph
                 }
 
                 CoarseNodeId target = other.Components[to].Id;
-                if (target != cell.Components[from].Id && seen[from].Add(target))
+                // A component has only a handful of edges, so a linear Contains beats a HashSet per component.
+                if (target != cell.Components[from].Id && !edges[from].Contains(target))
                 {
                     edges[from].Add(target);
                 }
