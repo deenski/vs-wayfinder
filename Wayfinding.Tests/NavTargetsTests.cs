@@ -11,7 +11,7 @@ public class NavTargetsTests
     [Fact]
     public void Set_clear_and_status_for_each_kind()
     {
-        var nav = Open();
+        var nav = Open(teammates: new NamedTeammates("Maili"));
 
         var waypoint = nav.SetWaypoint(HomeId, "Home");
         Assert.True(waypoint.Ok);
@@ -129,7 +129,7 @@ public class NavTargetsTests
     [Fact]
     public void Deleting_a_waypoint_does_not_clear_a_player_or_coordinate()
     {
-        var nav = Open();
+        var nav = Open(teammates: new NamedTeammates("Maili"));
         nav.Player("Maili");
         Assert.False(nav.NotifyWaypointDeleted(HomeId));
         Assert.Equal(NavTargetKind.Player, nav.Current.Kind);
@@ -278,12 +278,75 @@ public class NavTargetsTests
         Assert.Equal(HomeId, nav.Current.WaypointId);
     }
 
-    private static NavTargets Open(MemoryNavTargetStore? store = null, string worldId = "save-a")
+    [Fact]
+    public void Default_visibility_rejects_every_player_and_leaves_the_target()
     {
-        var nav = new NavTargets(store ?? new MemoryNavTargetStore());
+        var store = new MemoryNavTargetStore();
+        var nav = Open(store);
+        nav.SetWaypoint(HomeId, "Home");
+        var saves = store.Saves;
+
+        var reply = nav.Player("Maili");
+
+        Assert.False(reply.Ok);
+        Assert.Equal(NavTargets.TeammateSharingUnavailableMessage, reply.Message);
+        Assert.Equal(HomeId, nav.Current.WaypointId);
+        Assert.Equal(saves, store.Saves);
+    }
+
+    [Fact]
+    public void A_non_teammate_is_rejected_and_the_target_stays()
+    {
+        var store = new MemoryNavTargetStore();
+        var nav = Open(store, teammates: new NamedTeammates("Oren"));
+        nav.SetWaypoint(HomeId, "Home");
+        var saves = store.Saves;
+
+        var reply = nav.Player("Maili");
+
+        Assert.False(reply.Ok);
+        Assert.Equal(NavTargets.NotVisibleTeammateMessage("Maili"), reply.Message);
+        Assert.Equal(HomeId, nav.Current.WaypointId);
+        Assert.Equal(saves, store.Saves);
+    }
+
+    [Fact]
+    public void A_visible_teammate_is_accepted()
+    {
+        var nav = Open(teammates: new NamedTeammates("Maili"));
+
+        var reply = nav.Player("Maili");
+
+        Assert.True(reply.Ok);
+        Assert.Equal("Navigating to player \"Maili\".", reply.Message);
+        Assert.Equal(NavTargetKind.Player, nav.Current.Kind);
+        Assert.Equal("Target: player \"Maili\"", nav.Status(null, null).Message);
+    }
+
+    private static NavTargets Open(
+        MemoryNavTargetStore? store = null,
+        string worldId = "save-a",
+        ITeammateVisibility? teammates = null)
+    {
+        var nav = new NavTargets(store ?? new MemoryNavTargetStore(), teammates);
         nav.AttachWorld(worldId);
         nav.SetMapAllowed(true);
         return nav;
+    }
+}
+
+internal sealed class NamedTeammates : ITeammateVisibility
+{
+    private readonly HashSet<string> names;
+
+    public NamedTeammates(params string[] names)
+    {
+        this.names = new HashSet<string>(names, StringComparer.Ordinal);
+    }
+
+    public bool IsVisibleTeammate(string? playerNameOrUid)
+    {
+        return playerNameOrUid != null && names.Contains(playerNameOrUid);
     }
 }
 

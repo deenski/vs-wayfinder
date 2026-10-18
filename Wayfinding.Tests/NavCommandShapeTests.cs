@@ -29,6 +29,24 @@ public class NavCommandShapeTests
         Assert.DoesNotContain("GetOrCreate(\"nav\")", mod, StringComparison.Ordinal);
         Assert.DoesNotContain(".Create(\"nav\")", mod, StringComparison.Ordinal);
         Assert.Contains("NavTargets", mod, StringComparison.Ordinal);
+
+        Assert.Contains(
+            "X and Z are spawn-relative, the way the map shows them. Y is absolute height.",
+            commands,
+            StringComparison.Ordinal);
+        Assert.Contains("WithAdditionalInformation(", commands, StringComparison.Ordinal);
+        Assert.Contains(
+            "Y, when given, is absolute height and is not offset by spawn.",
+            commands,
+            StringComparison.Ordinal);
+
+        var model = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "Infra", "NavTargets.cs"));
+        var playerStart = model.IndexOf("public NavReply Player", StringComparison.Ordinal);
+        var coordStart = model.IndexOf("public NavReply Coord", StringComparison.Ordinal);
+        var player = model[playerStart..coordStart];
+        var check = player.IndexOf("IsVisibleTeammate", StringComparison.Ordinal);
+        var assign = player.IndexOf("current = NavTarget.Player", StringComparison.Ordinal);
+        Assert.True(check >= 0 && assign > check);
     }
 
     private static string RepoRoot()

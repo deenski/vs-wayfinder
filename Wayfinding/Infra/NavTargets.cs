@@ -46,15 +46,24 @@ public sealed class NavTargets
 
     public const string WorldNotReadyMessage = "The world isn't ready yet.";
 
+    public const string TeammateSharingUnavailableMessage = "Teammate sharing isn't available yet.";
+
+    public static string NotVisibleTeammateMessage(string name)
+    {
+        return "\"" + name + "\" isn't a visible teammate.";
+    }
+
     private readonly INavTargetStore store;
+    private readonly ITeammateVisibility teammates;
     private NavTargetDocument document = new();
     private string? worldId;
     private NavTarget current = NavTarget.None;
     private bool seenWaypointList;
 
-    public NavTargets(INavTargetStore store)
+    public NavTargets(INavTargetStore store, ITeammateVisibility? teammates = null)
     {
         this.store = store ?? throw new ArgumentNullException(nameof(store));
+        this.teammates = teammates ?? NoTeammateVisibility.Instance;
     }
 
     public NavTarget Current => current;
@@ -170,6 +179,16 @@ public sealed class NavTargets
         if (!PlayerNameParser.TryParse(argument, out var name, out var error))
         {
             return NavReply.Fail(error);
+        }
+
+        // Check before storing the name. Callers must not resolve an online
+        // player by name unless this returns true.
+        if (!teammates.IsVisibleTeammate(name))
+        {
+            var message = teammates is NoTeammateVisibility
+                ? TeammateSharingUnavailableMessage
+                : NotVisibleTeammateMessage(name);
+            return NavReply.Fail(message);
         }
 
         current = NavTarget.Player(name);

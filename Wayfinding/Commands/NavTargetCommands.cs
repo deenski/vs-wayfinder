@@ -26,13 +26,16 @@ public static class NavTargetCommands
                 .HandleWith(args => session.Waypoint(ArgText(args)))
             .EndSubCommand()
             .BeginSubCommand("player")
-                .WithDescription("Navigate to a player by name.")
+                .WithDescription("Navigate to a visible teammate by name.")
+                .WithAdditionalInformation("The name is accepted only when teammate visibility allows it. Until team sharing is connected, this reports that teammate sharing isn't available yet.")
                 .RequiresPrivilege(Privilege.chat)
                 .WithArgs(parsers.OptionalAll("name"))
                 .HandleWith(args => session.Player(ArgText(args)))
             .EndSubCommand()
             .BeginSubCommand("coord")
-                .WithDescription("Navigate to spawn-relative X Z, or X Y Z. Y is absolute height.")
+                .WithDescription("Navigate to coordinates. X and Z are spawn-relative, the way the map shows them. Y is absolute height.")
+                .WithAdditionalInformation("X and Z are spawn-relative: absolute equals the displayed number plus the spawn block, matching the map and /waypoint list. Y, when given, is absolute height and is not offset by spawn.")
+                .WithExamples(".nav coord 10 -4", ".nav coord 10 70 -4")
                 .RequiresPrivilege(Privilege.chat)
                 .WithArgs(parsers.OptionalAll("coordinates"))
                 .HandleWith(args => session.Coord(ArgText(args)))
@@ -63,7 +66,10 @@ public static class NavTargetCommands
 }
 
 /// <summary>
-/// Client adapter for <see cref="NavTargets"/>. Teammate filtering is KAN-21.
+/// Client adapter for <see cref="NavTargets"/>. The target model denies every
+/// player until a teammate-visibility implementation is passed in. After KAN-21
+/// merges, that is one constructor argument: the team service, which already
+/// has <c>IsVisibleTeammate</c>.
 /// </summary>
 public sealed class ClientNavSession
 {
@@ -75,6 +81,7 @@ public sealed class ClientNavSession
     {
         this.capi = capi ?? throw new ArgumentNullException(nameof(capi));
         this.mod = mod ?? throw new ArgumentNullException(nameof(mod));
+        // NoTeammateVisibility until KAN-21. Then: new NavTargets(store, teamService).
         Targets = new NavTargets(new ClientNavTargetStore(capi, mod.Log));
     }
 
@@ -135,7 +142,8 @@ public sealed class ClientNavSession
             return blocked;
         }
 
-        // KAN-21 limits this to teammates. This slice stores the name.
+        // Do not look up an online player by name here. NavTargets.Player
+        // checks ITeammateVisibility first and only then stores the name.
         return Reply(Targets.Player(argument));
     }
 
