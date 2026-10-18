@@ -10,6 +10,7 @@ namespace Wayfinding;
 public partial class WayfindingModSystem : ModSystem
 {
     private ICoreClientAPI? capi;
+    private ClientNavSession? navigation;
 
     public VersionGate Gate { get; } = new();
 
@@ -18,6 +19,15 @@ public partial class WayfindingModSystem : ModSystem
     public IWayfindingLog Log { get; private set; } = null!;
 
     public RenderGuard RenderGuard { get; private set; } = null!;
+
+    /// <summary>
+    /// Active navigation target. Null on the server.
+    /// TODO(KAN-19): WayfindingMapLayer reads <see cref="NavTargets"/> to draw the
+    /// route, and draws nothing while MapAllowed is false. Ctrl+click and hotkeys
+    /// call the same set and clear methods. Call NotifyWaypointDeleted when the
+    /// tracked waypoint is removed.
+    /// </summary>
+    public NavTargets? NavTargets => navigation?.Targets;
 
     public bool IsEnabled(Feature feature)
     {
@@ -43,7 +53,9 @@ public partial class WayfindingModSystem : ModSystem
         }
 
         api.Event.LevelFinalize += OnLevelFinalize;
+        api.Event.LeaveWorld += OnLeaveWorld;
         NavCommands.Register(api, this);
+        navigation = NavTargetCommands.Register(api, this);
         RegisterTeammateTether(api);
         RegisterDimensionAndArrival(api);
     }
@@ -73,12 +85,26 @@ public partial class WayfindingModSystem : ModSystem
         }
 
         Gate.Notify(new GateNotice(capi));
+        navigation?.OnLevelFinalize();
+    }
+
+    private void OnLeaveWorld()
+    {
+        navigation?.OnLeaveWorld();
     }
 
     public override void Dispose()
     {
-        DisposeTeammateTether();
+        if (capi is not null)
+        {
+            capi.Event.LevelFinalize -= OnLevelFinalize;
+        }
+
+        // Arrival (KAN-23) before the tether (KAN-22). Both hooks are safe when
+        // their Register methods never ran, including on the server instance.
         DisposeDimensionAndArrival();
+        DisposeTeammateTether();
+        navigation?.Dispose();
         base.Dispose();
     }
 }
