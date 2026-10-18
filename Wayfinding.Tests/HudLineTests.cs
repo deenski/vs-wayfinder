@@ -1,3 +1,4 @@
+using System;
 using Wayfinding.Infra;
 
 namespace Wayfinding.Tests;
@@ -24,6 +25,21 @@ public class HudLineTests
         Assert.Equal("Camp", HudLine.Label(NavTargetKind.Waypoint, " Camp "));
         Assert.Equal("target", HudLine.Label(NavTargetKind.Coordinate, null));
         Assert.Equal("target", HudLine.Label(NavTargetKind.Waypoint, "  "));
+    }
+
+    [Fact]
+    public void A_stale_player_line_appends_the_map_age_and_greys_out()
+    {
+        var line = HudLine.Format("Maili", "412 m", HudLine.ModeBadge, HudLine.Status(NavTargetKind.Player));
+
+        var stale = HudLine.WithTether(line, TeammateFixKind.Stale, TimeSpan.FromSeconds(30), out var staleGrey);
+
+        Assert.Equal("→ Maili 412 m  Local  player 30s", stale);
+        Assert.Equal("30s", TeammateAgeText.For(TeammateFixKind.Stale, TimeSpan.FromSeconds(30)));
+        Assert.True(staleGrey);
+        Assert.Equal(line, HudLine.WithTether(line, TeammateFixKind.Live, TimeSpan.Zero, out var liveGrey));
+        Assert.False(liveGrey);
+        Assert.False(HudLine.Show(mapAllowed: true, resolved: false));
     }
 
     [Fact]

@@ -14,6 +14,24 @@ public class LayerSourceTests
         Assert.Contains("DialogType == EnumDialogType.HUD", layer, StringComparison.Ordinal);
         Assert.Contains("targets.Changed += OnTargetChanged", layer, StringComparison.Ordinal);
         Assert.DoesNotContain("mod.Target", layer, StringComparison.Ordinal);
+        Assert.Contains("TryResolve(out double targetX", layer, StringComparison.Ordinal);
+        Assert.Contains("NavTarget current = targets.Current", layer, StringComparison.Ordinal);
+        Assert.DoesNotContain("override void OnTick", layer, StringComparison.Ordinal);
+        Assert.Contains("MapSelection.IsSelection", layer, StringComparison.Ordinal);
+        Assert.Contains("PlayerPrivacy.MayHit", layer, StringComparison.Ordinal);
+        Assert.Contains("EnumDialogType.Dialog", layer, StringComparison.Ordinal);
+        Assert.Contains("MouseDown += OnMouseDown", layer, StringComparison.Ordinal);
+        Assert.Contains("MouseDown -= OnMouseDown", layer, StringComparison.Ordinal);
+        Assert.DoesNotContain("Handled =", layer, StringComparison.Ordinal);
+
+        var hotkeys = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "WayfindingModSystem.Hotkeys.cs"));
+        Assert.Contains("RegisterHotKey", hotkeys, StringComparison.Ordinal);
+        Assert.Contains("SetHotKeyHandler", hotkeys, StringComparison.Ordinal);
+        Assert.Contains("HotkeyType.HelpAndOverlays", hotkeys, StringComparison.Ordinal);
+        Assert.DoesNotContain("RegisterHotKeyFirst", hotkeys, StringComparison.Ordinal);
+        Assert.Contains("targets.Off()", hotkeys, StringComparison.Ordinal);
+        Assert.Contains("SetWaypoint", hotkeys, StringComparison.Ordinal);
+        Assert.Contains("return true", hotkeys, StringComparison.Ordinal);
     }
 
     [Fact]

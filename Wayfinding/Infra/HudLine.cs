@@ -1,3 +1,5 @@
+using System;
+
 namespace Wayfinding.Infra;
 
 /// <summary>
@@ -48,5 +50,16 @@ public static class HudLine
         }
 
         return text;
+    }
+
+    /// <summary>
+    /// Appends the map label's age for a last-known or stale tether and greys that line.
+    /// A live fix is unchanged. A hidden tether never reaches this; the caller has no line.
+    /// </summary>
+    public static string WithTether(string line, TeammateFixKind kind, TimeSpan age, out bool grey)
+    {
+        var suffix = TeammateAgeText.For(kind, age);
+        grey = suffix != null;
+        return suffix == null ? line : line + " " + suffix;
     }
 }

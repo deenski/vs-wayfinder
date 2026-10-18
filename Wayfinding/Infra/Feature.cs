@@ -9,6 +9,7 @@ public enum Feature
     Waypoints,
     RemoteTracking,
     MinimapEdge,
+    ClientInput,
 }
 
 public enum MemberKind
@@ -17,6 +18,7 @@ public enum MemberKind
     Method,
     GenericMethodDefinition,
     Property,
+    Event,
 }
 
 public sealed class MemberRequirement

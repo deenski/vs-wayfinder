@@ -29,7 +29,6 @@ public sealed class WayfindingMapLayer : MapLayer
     const int MaxDashes = 64;
     const float LabelOffset = 16f;
 
-    static readonly Vec4f ArrowColor = new(1f, 1f, 1f, 0.95f);
     static readonly Vec4f RestoreColor = new(1f, 1f, 1f, 1f);
 
     readonly WayfindingModSystem mod;
@@ -57,8 +56,11 @@ public sealed class WayfindingMapLayer : MapLayer
     bool waypointHitsDisabled;
     bool playerHitsDisabled;
     bool minimapDisabled;
-    float dragPixels;
-    bool dragOpen;
+    bool mouseDownHooked;
+    bool hasPress;
+    MapMouseButton pressButton;
+    int pressX;
+    int pressY;
     FineRoute? straight;
     GridPos straightFrom;
     GridPos straightTo;
@@ -77,6 +79,11 @@ public sealed class WayfindingMapLayer : MapLayer
         Active = true;
         mod.AttachMapLayer(this);
         WatchTargets();
+        if (capi != null && mod.IsEnabled(Feature.ClientInput))
+        {
+            capi.Event.MouseDown += OnMouseDown;
+            mouseDownHooked = true;
+        }
     }
 
     public void ArmRenderException()
@@ -84,18 +91,9 @@ public sealed class WayfindingMapLayer : MapLayer
         armThrow = true;
     }
 
-    public override void OnTick(float dt)
-    {
-        if (capi != null && !capi.Input.MouseButton.Left)
-        {
-            dragPixels = 0;
-            dragOpen = false;
-        }
-    }
-
     public override void Render(GuiElementMap map, float dt)
     {
-        if (disposed || !Active || capi == null || !mod.RenderGuard.LayerEnabled)
+        if (disposed || !Active || capi == null || !mod.RenderGuard.LayerEnabled || !mod.RouteVisible)
         {
             return;
         }
@@ -118,22 +116,9 @@ public sealed class WayfindingMapLayer : MapLayer
 
     public override void OnMouseMoveClient(MouseEvent args, GuiElementMap mapElem, StringBuilder hoverText)
     {
-        if (capi == null)
+        if (capi == null || !mod.RouteVisible)
         {
             return;
-        }
-
-        if (MapInputPolicy.AllowsInput(inputDisabled) && mod.IsEnabled(Feature.MapViewport))
-        {
-            try
-            {
-                AccountDrag(args, mapElem);
-            }
-            catch (Exception ex)
-            {
-                inputDisabled = true;
-                mod.Log.LogOnce("map-input", LogLevel.Error, "map input disabled after " + ex.GetType().Name + ": " + ex.Message);
-            }
         }
 
         WatchTargets();
@@ -160,31 +145,23 @@ public sealed class WayfindingMapLayer : MapLayer
 
     public override void OnMouseUpClient(MouseEvent args, GuiElementMap mapElem)
     {
-        if (!MapInputPolicy.AllowsInput(inputDisabled) || capi == null || args.Handled)
+        if (!MapInputPolicy.AllowsInput(inputDisabled) || capi == null || args.Handled || !mod.IsEnabled(Feature.ClientInput))
         {
             return;
         }
 
-        bool middle = mod.Config.clickBinding == WayfindingClientConfig.ClickMiddle;
-        MapMouseButton button = MouseButton(args.Button);
-        if (middle)
+        MapMouseButton button = ToButton(args.Button);
+        bool sameButton = hasPress && pressButton == button;
+        int downX = pressX;
+        int downY = pressY;
+        if (sameButton)
         {
-            if (button != MapMouseButton.Middle)
-            {
-                return;
-            }
-        }
-        else if (button != MapMouseButton.Left || !CtrlDown)
-        {
-            return;
+            hasPress = false;
         }
 
         bool inside = ViewPoint(args, mapElem, out float mouseX, out float mouseY);
-        bool dragged = MapClick.IsDrag(dragPixels);
-        dragPixels = 0;
-        dragOpen = false;
         if (!Active || clickDisabled || !mod.IsEnabled(Feature.MapViewport)
-            || !MapClick.IsNavigationClick(button, CtrlDown, dragged, inside, middle))
+            || !MapSelection.IsSelection(mod.ClickBinding, button, CtrlHeld(), inside, IsWorldMapDialog(), sameButton, downX, downY, args.X, args.Y))
         {
             return;
         }
@@ -254,6 +231,12 @@ public sealed class WayfindingMapLayer : MapLayer
         }
 
         disposed = true;
+        if (mouseDownHooked && capi != null)
+        {
+            capi.Event.MouseDown -= OnMouseDown;
+            mouseDownHooked = false;
+        }
+
         UnwatchTargets();
         quad?.Dispose();
         quad = null;
@@ -373,7 +356,7 @@ public sealed class WayfindingMapLayer : MapLayer
         if (goal && minimap && MapEdge.TryEdgePoint(x2, y2, view.InnerWidth, view.InnerHeight, MapEdge.ArrowBorder, out float edgeX, out float edgeY, out float angle))
         {
             DrawClipped(prog, x1, y1, edgeX, edgeY, originX, originY, view, style, thickness);
-            DrawArrow(prog, edgeX + originX, edgeY + originY, angle);
+            DrawArrow(prog, edgeX + originX, edgeY + originY, angle, style.Color);
             DrawLabel(map, edgeX, edgeY, view);
             prog.Uniform("noTexture", 1f);
             prog.UniformMatrix("projectionMatrix", savedProjection);
@@ -428,12 +411,12 @@ public sealed class WayfindingMapLayer : MapLayer
         }
     }
 
-    void DrawArrow(IShaderProgram prog, float tipX, float tipY, float angle)
+    void DrawArrow(IShaderProgram prog, float tipX, float tipY, float angle, Vec4f color)
     {
         float length = (float)GuiElement.scaled(14);
         float tailX = tipX - MathF.Cos(angle) * length;
         float tailY = tipY - MathF.Sin(angle) * length;
-        prog.Uniform("rgbaIn", ArrowColor);
+        prog.Uniform("rgbaIn", color);
         DrawQuad(prog, tailX, tailY, tipX, tipY, (float)GuiElement.scaled(6));
     }
 
@@ -445,14 +428,14 @@ public sealed class WayfindingMapLayer : MapLayer
         }
 
         long now = capi.World.ElapsedMilliseconds;
+        NoteMeters(meters);
+        if (labelText == null)
+        {
+            return;
+        }
+
         if (LabelUpload.ShouldUpload(meters, uploadedMeters, now, uploadedAtMs))
         {
-            NoteMeters(meters);
-            if (labelText == null)
-            {
-                return;
-            }
-
             labelFont ??= CairoFont.WhiteDetailText();
             capi.Gui.TextTexture.GenOrUpdateTextTexture(labelText, labelFont, ref labelTexture);
             uploadedMeters = meters;
@@ -489,10 +472,11 @@ public sealed class WayfindingMapLayer : MapLayer
         capi.Render.RenderMesh(quad);
     }
 
-    internal bool TryHudLine(out string line, out int meters)
+    internal bool TryHudLine(out string line, out int meters, out bool grey)
     {
         line = "";
         meters = 0;
+        grey = false;
         if (!TryMeters(out meters))
         {
             return false;
@@ -504,23 +488,17 @@ public sealed class WayfindingMapLayer : MapLayer
             DistanceText.Format(meters),
             HudLine.ModeBadge,
             HudLine.Status(current.Kind));
+        if (current.Kind == NavTargetKind.Player && mod.TeammateSample is TeammateTetherSample sample)
+        {
+            line = HudLine.WithTether(line, sample.Kind, sample.Age, out grey);
+        }
+
         return true;
     }
 
     bool SurfaceEnabled()
     {
         return IsMinimap() ? mod.Config.showOnMinimap : mod.Config.showOnWorldMap;
-    }
-
-    static MapMouseButton MouseButton(EnumMouseButton button)
-    {
-        return button switch
-        {
-            EnumMouseButton.Left => MapMouseButton.Left,
-            EnumMouseButton.Middle => MapMouseButton.Middle,
-            EnumMouseButton.Right => MapMouseButton.Right,
-            _ => MapMouseButton.Other,
-        };
     }
 
     bool IsMinimap()
@@ -547,22 +525,45 @@ public sealed class WayfindingMapLayer : MapLayer
         return capi!.ModLoader.GetModSystem<WorldMapManager>().worldMapDlg?.DialogType == EnumDialogType.HUD;
     }
 
-    void AccountDrag(MouseEvent args, GuiElementMap mapElem)
+    // Don't set Handled. The game still pans on left-down and still opens the waypoint dialog on right-up.
+    // shortcut: MouseDown has no map bounds, so a press just outside the map can still select when the
+    // release is inside and within 5 px. A longer drag from outside is rejected by that distance.
+    void OnMouseDown(MouseEvent args)
     {
-        if (mapElem.IsDragingMap)
-        {
-            if (!dragOpen)
-            {
-                dragPixels = 0;
-                dragOpen = true;
-            }
+        pressButton = ToButton(args.Button);
+        pressX = args.X;
+        pressY = args.Y;
+        hasPress = true;
+    }
 
-            dragPixels += Math.Abs(args.DeltaX) + Math.Abs(args.DeltaY);
-            return;
+    static MapMouseButton ToButton(EnumMouseButton button)
+    {
+        return button switch
+        {
+            EnumMouseButton.Left => MapMouseButton.Left,
+            EnumMouseButton.Middle => MapMouseButton.Middle,
+            EnumMouseButton.Right => MapMouseButton.Right,
+            _ => MapMouseButton.Other,
+        };
+    }
+
+    bool IsWorldMapDialog()
+    {
+        if (capi == null)
+        {
+            return false;
         }
 
-        dragOpen = false;
-        dragPixels = 0;
+        try
+        {
+            return capi.ModLoader.GetModSystem<WorldMapManager>().worldMapDlg?.DialogType == EnumDialogType.Dialog;
+        }
+        catch (Exception ex)
+        {
+            clickDisabled = true;
+            mod.Log.LogOnce("map-click", LogLevel.Error, "map click disabled after " + ex.GetType().Name + ": " + ex.Message);
+            return false;
+        }
     }
 
     bool TryApplyHit(Waypoint? waypoint, PacketPlayerPosition? player)
@@ -579,6 +580,8 @@ public sealed class WayfindingMapLayer : MapLayer
             return true;
         }
 
+        // shortcut: NavTargets.Player stays unused until a teammate position source exists.
+        // A visible player icon sets a coordinate at that position. Hidden players never get here.
         if (player != null && TrackedPlayerPosition.TryHorizontal(player, out double playerX, out double playerZ))
         {
             Say(targets.SetCoordinate(FloorCoord(playerX, PlayerFeetY(player), playerZ), Spawn()).Message);
@@ -729,6 +732,11 @@ public sealed class WayfindingMapLayer : MapLayer
                 continue;
             }
 
+            if (!PlayerPrivacy.MayHit(packet.PlayerUid, TeammateVisible(packet.PlayerUid)))
+            {
+                continue;
+            }
+
             if (!Closer(x, y, half, mouseX, mouseY, ref best))
             {
                 continue;
@@ -812,10 +820,39 @@ public sealed class WayfindingMapLayer : MapLayer
         return new AbsoluteCoord((int)Math.Floor(x), y is double feet ? (int)Math.Floor(feet) : null, (int)Math.Floor(z));
     }
 
-    bool CtrlDown =>
-        capi != null && (
-            capi.Input.KeyboardKeyStateRaw[(int)GlKeys.LControl]
-            || capi.Input.KeyboardKeyStateRaw[(int)GlKeys.RControl]);
+    bool TeammateVisible(string? uid)
+    {
+        ITeammateVisibility visibility = mod.Teams as ITeammateVisibility ?? NoTeammateVisibility.Instance;
+        return visibility.IsVisibleTeammate(uid);
+    }
+
+    bool CtrlHeld()
+    {
+        if (capi == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            bool right = KeyDown((int)GlKeys.RControl);
+            var ctrl = capi.Input.GetHotKeyByCode("ctrl");
+            int code = ctrl?.CurrentMapping == null ? -1 : ctrl.CurrentMapping.KeyCode;
+            return KeyDown(code) || right;
+        }
+        catch (Exception ex)
+        {
+            inputDisabled = true;
+            mod.Log.LogOnce("map-input", LogLevel.Error, "map input disabled after " + ex.GetType().Name + ": " + ex.Message);
+            return false;
+        }
+    }
+
+    bool KeyDown(int code)
+    {
+        var keys = capi!.Input.KeyboardKeyStateRaw;
+        return (uint)code < (uint)keys.Length && keys[code];
+    }
 
     static bool ViewPoint(MouseEvent args, GuiElementMap map, out float x, out float y)
     {
@@ -915,6 +952,11 @@ public sealed class WayfindingMapLayer : MapLayer
             return true;
         }
 
+        if (current.Kind == NavTargetKind.Player)
+        {
+            return TryPlayerTether(out x, out y, out z);
+        }
+
         if (current.Kind != NavTargetKind.Waypoint || !mod.IsEnabled(Feature.Waypoints) || waypointDrawDisabled)
         {
             return false;
@@ -930,6 +972,28 @@ public sealed class WayfindingMapLayer : MapLayer
             mod.Log.LogOnce("map-waypoint-draw", LogLevel.Error, "waypoint target drawing disabled after " + ex.GetType().Name + ": " + ex.Message);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Player targets use the tether sample. That sample already applied
+    /// <see cref="ITeammatePositionSource"/> (entity, then remote tracking),
+    /// the greyed last-known and 30 s stale rules, hysteresis, and the hide
+    /// conditions. Read on the render thread, which is the client main thread.
+    /// </summary>
+    bool TryPlayerTether(out double x, out double y, out double z)
+    {
+        x = 0;
+        y = 0;
+        z = 0;
+        if (mod.TeammateSample is not TeammateTetherSample sample || !sample.Visible || !sample.HasPosition)
+        {
+            return false;
+        }
+
+        x = sample.Position.X;
+        y = sample.Position.Y ?? 0;
+        z = sample.Position.Z;
+        return true;
     }
 
     bool TryWaypointPosition(Guid id, out double x, out double y, out double z)
@@ -982,13 +1046,30 @@ public sealed class WayfindingMapLayer : MapLayer
 
     void NoteMeters(int meters)
     {
-        if (meters == labelMeters && labelText != null)
+        string text = DistanceText.Format(meters);
+        if (mod.TeammateSample is TeammateTetherSample sample)
+        {
+            string? age = TeammateAgeText.For(sample.Kind, sample.Age);
+            if (age != null)
+            {
+                text = text + " " + age;
+            }
+        }
+
+        if (meters == labelMeters && labelText == text)
         {
             return;
         }
 
+        // Age can change while the rounded meters stay put. The upload rule
+        // skips an unchanged distance, so an age-only change uploads once.
+        if (meters == labelMeters)
+        {
+            uploadedMeters = -1;
+        }
+
         labelMeters = meters;
-        labelText = DistanceText.Format(meters);
+        labelText = text;
     }
 
     bool TryMeters(out int meters)

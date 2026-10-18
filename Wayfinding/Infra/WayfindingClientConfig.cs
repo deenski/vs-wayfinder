@@ -9,9 +9,11 @@ namespace Wayfinding.Infra;
 /// </summary>
 public sealed class WayfindingClientConfig
 {
-    public const string ClickCtrlLeft = "ctrl-left";
+    public const string ClickCtrlLeft = "CtrlLeft";
 
-    public const string ClickMiddle = "middle";
+    public const string ClickMiddle = "Middle";
+
+    public const string ClickBoth = "Both";
 
     public int debugVerbosity = 0;
 
@@ -186,6 +188,17 @@ public static class WayfindingConfig
             }
 
             value = WayfindingClientConfig.ClickMiddle;
+            return true;
+        }
+
+        if (string.Equals(value, WayfindingClientConfig.ClickBoth, StringComparison.OrdinalIgnoreCase))
+        {
+            if (value == WayfindingClientConfig.ClickBoth)
+            {
+                return false;
+            }
+
+            value = WayfindingClientConfig.ClickBoth;
             return true;
         }
 

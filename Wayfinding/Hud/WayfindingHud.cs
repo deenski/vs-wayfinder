@@ -19,8 +19,10 @@ public sealed class WayfindingHud : IRenderer
     private readonly ICoreClientAPI capi;
     private readonly WayfindingModSystem mod;
     private readonly CairoFont font = CairoFont.WhiteDetailText();
+    private readonly CairoFont greyFont = CairoFont.WhiteDetailText().WithColor(new double[] { 0.75, 0.75, 0.75, 1 });
     private LoadedTexture? texture;
     private string? uploadedText;
+    private bool uploadedGrey;
     private int uploadedMeters = -1;
     private long uploadedAtMs;
     private bool disabled;
@@ -64,7 +66,7 @@ public sealed class WayfindingHud : IRenderer
     private void Draw()
     {
         var targets = mod.NavTargets;
-        if (mod.MapLayer == null || !mod.MapLayer.TryHudLine(out var line, out var meters))
+        if (mod.MapLayer == null || !mod.MapLayer.TryHudLine(out var line, out var meters, out var grey))
         {
             return;
         }
@@ -88,10 +90,11 @@ public sealed class WayfindingHud : IRenderer
 
         var now = capi.World.ElapsedMilliseconds;
         var due = LabelUpload.ShouldUpload(meters, uploadedMeters, now, uploadedAtMs);
-        if (due || (line != uploadedText && meters == uploadedMeters))
+        if (due || ((line != uploadedText || grey != uploadedGrey) && meters == uploadedMeters))
         {
-            capi.Gui.TextTexture.GenOrUpdateTextTexture(line, font, ref texture);
+            capi.Gui.TextTexture.GenOrUpdateTextTexture(line, grey ? greyFont : font, ref texture);
             uploadedText = line;
+            uploadedGrey = grey;
             uploadedMeters = meters;
             uploadedAtMs = now;
         }
