@@ -74,8 +74,8 @@ public class GameReferenceGuardTests
             vintageStory: null);
 
         Assert.NotEqual(0, result.ExitCode);
-        Assert.Contains("must not reference game assemblies", result.Output, StringComparison.Ordinal);
-        Assert.Contains("Vintagestory", result.Output, StringComparison.Ordinal);
+        Assert.Contains("must not reference game assemblies: Vintagestory.", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Vintagestory;Vintagestory", result.Output, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -92,8 +92,8 @@ public class GameReferenceGuardTests
             vintageStory: "/tmp/fake-vs-install/");
 
         Assert.NotEqual(0, result.ExitCode);
-        Assert.Contains("must not reference game assemblies", result.Output, StringComparison.Ordinal);
-        Assert.Contains("protobuf-net", result.Output, StringComparison.Ordinal);
+        Assert.Contains("must not reference game assemblies: protobuf-net.", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("protobuf-net;protobuf-net", result.Output, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -112,6 +112,7 @@ public class GameReferenceGuardTests
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains("must not reference game assemblies", result.Output, StringComparison.Ordinal);
         Assert.Contains("VintagestoryAPI", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("VintagestoryAPI;VintagestoryAPI", result.Output, StringComparison.Ordinal);
     }
 
     private static (int ExitCode, string Output) BuildWithReference(string itemGroup, string? vintageStory)
