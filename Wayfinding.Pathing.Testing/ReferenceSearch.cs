@@ -1,7 +1,7 @@
 using Wayfinding.Pathing.Cost;
 using Wayfinding.Pathing.Grid;
 
-namespace Wayfinding.Pathing.Search;
+namespace Wayfinding.Pathing.Testing;
 
 /// <summary>Outcome of a <see cref="ReferenceSearch"/> run.</summary>
 public enum ReferenceSearchStatus : byte
@@ -55,10 +55,10 @@ public sealed record ReferenceSearchResult(
 }
 
 /// <summary>
-/// <b>Reference implementation only — KAN-26 (WF-12, fine A*) replaces it.</b> A deliberately simple uniform-cost
-/// (Dijkstra) search over occupiable positions with 8-neighbour moves, used by the KAN-25 tests to prove the
-/// <see cref="ClimbCostModel"/>. It has no heuristic, no Unknown-segment handling, no cancellation and no
-/// path simplification; do not ship it in the planner.
+/// <b>Test oracle only; lives in <c>Wayfinding.Pathing.Testing</c> so it never ships in the mod.</b> A deliberately
+/// simple uniform-cost (Dijkstra) search over occupiable positions with 8-neighbour moves, used by the KAN-25 tests
+/// to prove the <see cref="ClimbCostModel"/> and by the KAN-26 tests as the optimality oracle for the fine A*.
+/// It has no heuristic, no Unknown-segment handling, no cancellation and no path simplification.
 /// </summary>
 /// <remarks>
 /// From each position it tries every column in the 8 directions at every Y from <c>+MaxClimb</c> to

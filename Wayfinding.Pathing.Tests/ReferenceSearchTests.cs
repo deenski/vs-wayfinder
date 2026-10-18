@@ -1,6 +1,5 @@
 using Wayfinding.Pathing.Cost;
 using Wayfinding.Pathing.Grid;
-using Wayfinding.Pathing.Search;
 using Wayfinding.Pathing.Testing;
 
 namespace Wayfinding.Pathing.Tests;
