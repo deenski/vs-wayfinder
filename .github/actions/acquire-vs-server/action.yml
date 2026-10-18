@@ -56,7 +56,7 @@ runs:
     - name: Restore server from the Actions cache
       id: cache
       if: steps.ghcr.outputs.acquired != 'true'
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ${{ inputs.dest }}
         key: vs-server-${{ inputs.version }}-${{ inputs.md5 }}
@@ -72,7 +72,7 @@ runs:
 
     - name: Save the server to the Actions cache
       if: steps.ghcr.outputs.acquired != 'true' && steps.cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ${{ inputs.dest }}
         key: vs-server-${{ inputs.version }}-${{ inputs.md5 }}

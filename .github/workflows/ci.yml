@@ -16,8 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           global-json-file: global.json
       - name: Unit tests
@@ -31,7 +31,7 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Resolve stable and unstable servers
         id: matrix
         run: |
@@ -76,9 +76,9 @@ jobs:
         run: |
           echo "::notice title=Unstable server skipped::Unstable ${UNSTABLE_VERSION} is not newer than stable ${STABLE_VERSION}. Skipping build and server load."
           echo "Unstable ${UNSTABLE_VERSION} is not newer than stable ${STABLE_VERSION}. Skipping build and server load."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         if: ${{ !matrix.skip }}
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         if: ${{ !matrix.skip }}
         with:
           global-json-file: global.json
