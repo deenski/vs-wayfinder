@@ -216,7 +216,7 @@ public sealed class TimeSlicedSnapshotFill
                         Decode(_cellCursor, dx, dz, x0, y0, z0, out int x, out int y, out int z);
                         if (terrain.TryReadCell(x, y, z, out BlockCell cell))
                         {
-                            _builder.Set(x, y, z, cell.Class, cell.Flags);
+                            _builder.Set(x, y, z, cell);
                         }
 
                         _cellCursor++;

@@ -21,12 +21,14 @@ public enum ObservedFluid : byte
 /// <param name="BlockId">Block id of the block being classified. Zero is air. Ignored when <paramref name="Readable"/> is false.</param>
 /// <param name="TraversalCost"><c>GetTraversalCost</c> for the Humanoid creature type. A value of <see cref="HazardTraversalCost"/> or more is a hazard, unless the cell is lava.</param>
 /// <param name="HasCollision">True when the block has at least one collision box.</param>
+/// <param name="MaxCollisionY2">Largest collision-box Y2, in blocks. Null when it was not measured. A full block is 1.</param>
 public readonly record struct CellSample(
     bool Readable,
     ObservedFluid Fluid,
     int BlockId,
     float TraversalCost,
-    bool HasCollision)
+    bool HasCollision,
+    float? MaxCollisionY2 = null)
 {
     /// <summary>
     /// Humanoid traversal cost at or above this value is impassable.

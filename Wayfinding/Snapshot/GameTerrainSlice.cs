@@ -246,8 +246,14 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
         guard.AssertMainThread();
         float traversal = block.GetTraversalCost(pos, EnumAICreatureType.Humanoid);
         guard.AssertMainThread();
-        bool collision = HasCollision(block.GetCollisionBoxes(blocks, pos));
-        sample = new CellSample(true, ObservedFluid.None, block.Id, traversal, collision);
+        bool collision = TryMaxCollisionY2(block.GetCollisionBoxes(blocks, pos), out float maxY2);
+        sample = new CellSample(
+            true,
+            ObservedFluid.None,
+            block.Id,
+            traversal,
+            collision,
+            collision ? maxY2 : null);
         return true;
     }
 
@@ -298,21 +304,36 @@ internal sealed class GameTerrainSlice : ITerrainSlice, IChunkReader
 #endif
     }
 
-    private static bool HasCollision(Cuboidf[]? boxes)
+    private static bool TryMaxCollisionY2(Cuboidf[]? boxes, out float maxY2)
     {
+        maxY2 = 0;
         if (boxes == null || boxes.Length == 0)
         {
             return false;
         }
 
+        bool any = false;
+        float max = float.NegativeInfinity;
         foreach (Cuboidf box in boxes)
         {
-            if (box != null)
+            if (box == null)
             {
-                return true;
+                continue;
+            }
+
+            any = true;
+            if (box.Y2 > max)
+            {
+                max = box.Y2;
             }
         }
 
-        return false;
+        if (!any)
+        {
+            return false;
+        }
+
+        maxY2 = max;
+        return true;
     }
 }

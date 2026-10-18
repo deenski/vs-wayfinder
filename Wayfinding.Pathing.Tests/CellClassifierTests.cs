@@ -27,6 +27,41 @@ public class CellClassifierTests
     }
 
     [Theory]
+    [InlineData(1f, (byte)8)]
+    [InlineData(0.5f, (byte)4)]
+    [InlineData(0.125f, (byte)1)]
+    [InlineData(0f, (byte)0)]
+    [InlineData(-0.25f, (byte)0)]
+    [InlineData(40f, (byte)255)]
+    public void StepHeight_QuantizesMaxCollisionY2ToEighths(float y2, byte expected)
+    {
+        var sample = new CellSample(true, ObservedFluid.None, BlockId: 3, TraversalCost: 0, HasCollision: true, MaxCollisionY2: y2);
+        Assert.True(CellClassifier.TryClassify(sample, out BlockCell cell));
+        Assert.Equal(CellClass.Solid, cell.Class);
+        Assert.Equal(expected, cell.StepHeight);
+        Assert.Equal(expected, CellClassifier.QuantizeStepHeight(y2));
+    }
+
+    [Fact]
+    public void Slab_StaysSolid_AndRecordsHalfHeight()
+    {
+        var sample = new CellSample(true, ObservedFluid.None, BlockId: 11, TraversalCost: 0, HasCollision: true, MaxCollisionY2: 0.5f);
+        Assert.True(CellClassifier.TryClassify(sample, out BlockCell cell));
+        Assert.Equal(CellClass.Solid, cell.Class);
+        Assert.Equal((byte)4, cell.StepHeight);
+    }
+
+    [Fact]
+    public void NoCollision_LeavesStepHeightUnmeasured()
+    {
+        var air = new CellSample(true, ObservedFluid.None, BlockId: 0, TraversalCost: 0, HasCollision: false, MaxCollisionY2: 1f);
+        Assert.True(CellClassifier.TryClassify(air, out BlockCell cell));
+        Assert.Equal(CellClass.Air, cell.Class);
+        Assert.Null(cell.StepHeight);
+        Assert.Null(BlockCell.Unknown.StepHeight);
+    }
+
+    [Theory]
     [InlineData(0, 10, 10)]
     [InlineData(1, 10, 32768 + 10)]
     [InlineData(2, -4, 65536 - 4)]

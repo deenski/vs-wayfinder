@@ -39,7 +39,7 @@ public interface IBlockGrid
     /// <returns>The class, or <see cref="CellClass.Unknown"/> outside known terrain. Never throws.</returns>
     CellClass GetClass(int x, int y, int z);
 
-    /// <summary>Returns the class and extra flags of the block at the given world coordinate.</summary>
+    /// <summary>Returns the class, flags, and optional step height of the block at the given world coordinate.</summary>
     /// <param name="x">Block X.</param>
     /// <param name="y">Block Y.</param>
     /// <param name="z">Block Z.</param>

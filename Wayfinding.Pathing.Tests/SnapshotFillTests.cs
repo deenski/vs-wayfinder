@@ -113,6 +113,17 @@ public class SnapshotFillTests
     }
 
     [Fact]
+    public void Fill_CopiesStepHeight()
+    {
+        var sourceBuilder = new BlockGridSnapshotBuilder(default, 1, 1, 1);
+        sourceBuilder.Set(0, 0, 0, new BlockCell(CellClass.Solid, CellFlags.None, 4));
+        BlockGridSnapshot source = sourceBuilder.Build();
+
+        BlockGridSnapshot snapshot = Fill(source, int.MaxValue, out _, out _);
+        Assert.Equal(new BlockCell(CellClass.Solid, CellFlags.None, 4), snapshot.GetCell(0, 0, 0));
+    }
+
+    [Fact]
     public void NegativeOrigin_CopiesTheFakeGrid()
     {
         var origin = new GridPos(-2, -3, 5);

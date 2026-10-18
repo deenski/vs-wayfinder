@@ -14,6 +14,8 @@ namespace Wayfinding.Pathing.Grid;
 /// <see cref="CellClass.Walkable"/> otherwise;
 /// otherwise any collision box is <see cref="CellClass.Solid"/>.
 /// An unreadable sample is not classified: the caller leaves the cell <see cref="CellClass.Unknown"/>.
+/// When the sample has a collision box and a measured max Y2, <see cref="BlockCell.StepHeight"/> is that Y2
+/// in eighths of a block. The class does not change, so a slab stays <see cref="CellClass.Solid"/>.
 /// </remarks>
 public static class CellClassifier
 {
@@ -33,31 +35,63 @@ public static class CellClassifier
 
         if (sample.Fluid == ObservedFluid.Lava)
         {
-            cell = new BlockCell(CellClass.Lava);
+            cell = Classified(CellClass.Lava, sample);
             return true;
         }
 
         if (sample.Fluid == ObservedFluid.Water)
         {
-            cell = sample.TraversalCost >= CellSample.HazardTraversalCost
-                ? new BlockCell(CellClass.Hazard)
-                : new BlockCell(CellClass.Water);
+            cell = Classified(
+                sample.TraversalCost >= CellSample.HazardTraversalCost ? CellClass.Hazard : CellClass.Water,
+                sample);
             return true;
         }
 
         if (sample.TraversalCost >= CellSample.HazardTraversalCost)
         {
-            cell = new BlockCell(CellClass.Hazard);
+            cell = Classified(CellClass.Hazard, sample);
             return true;
         }
 
         if (!sample.HasCollision)
         {
-            cell = new BlockCell(sample.BlockId == 0 ? CellClass.Air : CellClass.Walkable);
+            cell = Classified(sample.BlockId == 0 ? CellClass.Air : CellClass.Walkable, sample);
             return true;
         }
 
-        cell = new BlockCell(CellClass.Solid);
+        cell = Classified(CellClass.Solid, sample);
         return true;
+    }
+
+    /// <summary>
+    /// Quantizes a collision box's maximum Y2 to eighths of a block.
+    /// </summary>
+    /// <param name="maxCollisionY2">The largest collision-box Y2, in blocks. A full block is 1.</param>
+    /// <returns>The height in eighths, clamped to a byte. 1 becomes 8.</returns>
+    public static byte QuantizeStepHeight(float maxCollisionY2)
+    {
+        double eighths = Math.Round(maxCollisionY2 * 8.0, MidpointRounding.AwayFromZero);
+        if (eighths <= 0)
+        {
+            return 0;
+        }
+
+        if (eighths >= byte.MaxValue)
+        {
+            return byte.MaxValue;
+        }
+
+        return (byte)eighths;
+    }
+
+    private static BlockCell Classified(CellClass cls, in CellSample sample)
+    {
+        byte? step = null;
+        if (sample.HasCollision && sample.MaxCollisionY2 is float y2)
+        {
+            step = QuantizeStepHeight(y2);
+        }
+
+        return new BlockCell(cls, CellFlags.None, step);
     }
 }
