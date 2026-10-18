@@ -22,6 +22,7 @@ public class VersionGateTests
         Assert.True(gate.IsEnabled(Feature.MapViewport));
         Assert.False(gate.IsEnabled(Feature.Waypoints));
         Assert.True(gate.IsEnabled(Feature.RemoteTracking));
+        Assert.True(gate.IsEnabled(Feature.MinimapEdge));
 
         var call = Assert.Single(notice.Calls);
         Assert.Equal(Feature.Waypoints, call.Feature);
@@ -42,18 +43,20 @@ public class VersionGateTests
         Assert.True(gate.IsEnabled(Feature.MapViewport));
         Assert.True(gate.IsEnabled(Feature.Waypoints));
         Assert.True(gate.IsEnabled(Feature.RemoteTracking));
+        Assert.True(gate.IsEnabled(Feature.MinimapEdge));
         Assert.Contains("RegisterMapLayer", gate.State(Feature.MapLayer).Missing, StringComparison.Ordinal);
     }
 
     [Fact]
     public void Missing_one_viewport_member_disables_only_map_viewport()
     {
-        var gate = Evaluate(FeatureCatalog.ClampButPreserveAngle.Display);
+        var gate = Evaluate(FeatureCatalog.IsDragingMap.Display);
 
         Assert.True(gate.IsEnabled(Feature.MapLayer));
         Assert.False(gate.IsEnabled(Feature.MapViewport));
         Assert.True(gate.IsEnabled(Feature.Waypoints));
         Assert.True(gate.IsEnabled(Feature.RemoteTracking));
+        Assert.True(gate.IsEnabled(Feature.MinimapEdge));
     }
 
     [Fact]
@@ -128,10 +131,11 @@ public class VersionGateTests
     {
         var sink = new ListSink();
         var gate = new VersionGate();
-        gate.Evaluate(new SelectiveThrowProbe(FeatureCatalog.GetPlayerPositionInformation.Display), new WayfindingLog(sink));
+        gate.Evaluate(new SelectiveThrowProbe(FeatureCatalog.GetAllTrackedPlayerPositions.Display), new WayfindingLog(sink));
 
         Assert.True(gate.IsEnabled(Feature.MapLayer));
         Assert.False(gate.IsEnabled(Feature.RemoteTracking));
+        Assert.True(gate.IsEnabled(Feature.MinimapEdge));
         Assert.Contains(sink.Lines, line => line.Level == LogLevel.Error && line.Line.StartsWith("[wayfinding] ", StringComparison.Ordinal));
     }
 
@@ -149,7 +153,55 @@ public class VersionGateTests
             new MemberRequirement("PlainMap", "RegisterMapLayer", MemberKind.GenericMethodDefinition)));
         Assert.True(MemberMatcher.HasMember(
             typeof(SampleMap),
-            new MemberRequirement("SampleMap", "ClampButPreserveAngle", MemberKind.Method)));
+            new MemberRequirement("SampleMap", "DialogType", MemberKind.Property)));
+        Assert.False(MemberMatcher.HasMember(
+            typeof(SampleMap),
+            new MemberRequirement("SampleMap", "DialogType", MemberKind.Field)));
+    }
+
+    [Fact]
+    public void Catalog_lists_the_members_the_map_layer_uses()
+    {
+        Assert.Equal(["MapLayers", "RegisterMapLayer"], Names(Feature.MapLayer));
+        Assert.Equal(["CurrentBlockViewBounds", "IsDragingMap"], Names(Feature.MapViewport));
+        Assert.Equal(["ownWaypoints", "mapLayers"], Names(Feature.Waypoints));
+        Assert.Equal(
+            ["GetAllTrackedPlayerPositions", "PlayerUid", "PosX", "PosZ", "Despawn", "AssociatedPlayer", "mapLayers"],
+            Names(Feature.RemoteTracking));
+        Assert.Equal(["worldMapDlg", "DialogType", "HUD"], Names(Feature.MinimapEdge));
+
+        var names = FeatureCatalog.All.SelectMany(feature => Names(feature)).ToArray();
+        Assert.DoesNotContain("ClampButPreserveAngle", names);
+        Assert.DoesNotContain("GetPlayerPositionInformation", names);
+    }
+
+    [Fact]
+    public void Missing_map_layer_list_disables_only_the_hit_test_features()
+    {
+        var gate = Evaluate(FeatureCatalog.MapElementLayers.Display);
+
+        Assert.True(gate.IsEnabled(Feature.MapLayer));
+        Assert.True(gate.IsEnabled(Feature.MapViewport));
+        Assert.False(gate.IsEnabled(Feature.Waypoints));
+        Assert.False(gate.IsEnabled(Feature.RemoteTracking));
+        Assert.True(gate.IsEnabled(Feature.MinimapEdge));
+    }
+
+    [Fact]
+    public void Missing_dialog_type_disables_only_the_minimap_edge()
+    {
+        var gate = Evaluate(FeatureCatalog.DialogType.Display);
+
+        Assert.True(gate.IsEnabled(Feature.MapLayer));
+        Assert.True(gate.IsEnabled(Feature.MapViewport));
+        Assert.True(gate.IsEnabled(Feature.Waypoints));
+        Assert.True(gate.IsEnabled(Feature.RemoteTracking));
+        Assert.False(gate.IsEnabled(Feature.MinimapEdge));
+    }
+
+    private static string[] Names(Feature feature)
+    {
+        return FeatureCatalog.Requirements(feature).Select(requirement => requirement.MemberName).ToArray();
     }
 
     [Fact]
@@ -229,9 +281,7 @@ public class VersionGateTests
         {
         }
 
-        public void ClampButPreserveAngle(ref object viewPos, int border)
-        {
-        }
+        public int DialogType { get; set; }
     }
 
     private sealed class PlainMap

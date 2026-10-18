@@ -55,7 +55,12 @@ public class InfraBoundaryTests
         Assert.DoesNotContain("BeginSubCommand(\"share\")", commands, StringComparison.Ordinal);
         Assert.DoesNotContain("BeginSubCommand(\"team\")", commands, StringComparison.Ordinal);
         Assert.Contains("if (Gate.IsEnabled(Feature.MapLayer))", mod, StringComparison.Ordinal);
-        Assert.Contains("RegisterMapLayer<DebugMapLayer>", mod, StringComparison.Ordinal);
+        Assert.Contains("RegisterMapLayer<WayfindingMapLayer>", mod, StringComparison.Ordinal);
+        Assert.Contains("public override void Dispose()", mod, StringComparison.Ordinal);
+        Assert.Contains("LevelFinalize -= OnLevelFinalize", mod, StringComparison.Ordinal);
+        Assert.Contains("LeaveWorld -= OnLeaveWorld", mod, StringComparison.Ordinal);
+        Assert.Contains("navigation?.OnLeaveWorld()", mod, StringComparison.Ordinal);
+        Assert.Contains("NavTargetCommands.Register", mod, StringComparison.Ordinal);
         Assert.Contains("TeammateTetherCommands.Register(nav, mod)", commands, StringComparison.Ordinal);
         Assert.Contains("DimensionArrivalCommands.Register(nav, mod)", commands, StringComparison.Ordinal);
         Assert.Contains("RegisterTeammateTether(api)", mod, StringComparison.Ordinal);

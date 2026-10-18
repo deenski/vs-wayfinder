@@ -21,17 +21,32 @@ public partial class WayfindingModSystem : ModSystem
     public RenderGuard RenderGuard { get; private set; } = null!;
 
     /// <summary>
-    /// Active navigation target. Null on the server.
-    /// TODO(KAN-19): WayfindingMapLayer reads <see cref="NavTargets"/> to draw the
-    /// route, and draws nothing while MapAllowed is false. Ctrl+click and hotkeys
-    /// call the same set and clear methods. Call NotifyWaypointDeleted when the
-    /// tracked waypoint is removed.
+    /// Active navigation target. Null on the server. The map layer reads this on
+    /// the client main thread and draws nothing while <see cref="NavTargets.MapAllowed"/>
+    /// is false.
     /// </summary>
     public NavTargets? NavTargets => navigation?.Targets;
+
+    public WayfindingMapLayer? MapLayer { get; private set; }
+
+    public ICoreClientAPI? Client => capi;
 
     public bool IsEnabled(Feature feature)
     {
         return Gate.IsEnabled(feature);
+    }
+
+    public void AttachMapLayer(WayfindingMapLayer layer)
+    {
+        MapLayer = layer;
+    }
+
+    public void DetachMapLayer(WayfindingMapLayer layer)
+    {
+        if (ReferenceEquals(MapLayer, layer))
+        {
+            MapLayer = null;
+        }
     }
 
     public override void Start(ICoreAPI api)
@@ -48,8 +63,7 @@ public partial class WayfindingModSystem : ModSystem
         RunGate();
         if (Gate.IsEnabled(Feature.MapLayer))
         {
-            api.ModLoader.GetModSystem<WorldMapManager>()
-                .RegisterMapLayer<DebugMapLayer>(DebugMapLayer.LayerCode, 1.1);
+            RegisterWayfindingLayer(api);
         }
 
         api.Event.LevelFinalize += OnLevelFinalize;
@@ -63,6 +77,12 @@ public partial class WayfindingModSystem : ModSystem
     public override void StartServerSide(ICoreServerAPI api)
     {
         RunGate();
+    }
+
+    private static void RegisterWayfindingLayer(ICoreClientAPI api)
+    {
+        api.ModLoader.GetModSystem<WorldMapManager>()
+            .RegisterMapLayer<WayfindingMapLayer>(WayfindingMapLayer.LayerCode, 1.1);
     }
 
     private void RunGate()
@@ -98,13 +118,17 @@ public partial class WayfindingModSystem : ModSystem
         if (capi is not null)
         {
             capi.Event.LevelFinalize -= OnLevelFinalize;
+            capi.Event.LeaveWorld -= OnLeaveWorld;
+            capi = null;
         }
 
         // Arrival (KAN-23) before the tether (KAN-22). Both hooks are safe when
         // their Register methods never ran, including on the server instance.
         DisposeDimensionAndArrival();
         DisposeTeammateTether();
+        navigation?.OnLeaveWorld();
         navigation?.Dispose();
+        navigation = null;
         base.Dispose();
     }
 }
