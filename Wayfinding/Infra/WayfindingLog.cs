@@ -33,7 +33,8 @@ public sealed class WayfindingLog : IWayfindingLog
 
     private readonly ILogSink sink;
     private readonly HashSet<string> once = new(StringComparer.Ordinal);
-    private int verbosity;
+    private readonly object onceLock = new();
+    private volatile int verbosity;
 
     public WayfindingLog(ILogSink sink, int verbosity = 0)
     {
@@ -64,9 +65,17 @@ public sealed class WayfindingLog : IWayfindingLog
             throw new ArgumentException("A log-once key is required.", nameof(key));
         }
 
-        if (verbosity < RequiredVerbosity(level) || !once.Add(key))
+        if (verbosity < RequiredVerbosity(level))
         {
             return;
+        }
+
+        lock (onceLock)
+        {
+            if (!once.Add(key))
+            {
+                return;
+            }
         }
 
         sink.Write(level, PrefixLine(message));

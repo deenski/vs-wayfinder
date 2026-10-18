@@ -32,6 +32,37 @@ public class LoggingAndGuardTests
     }
 
     [Fact]
+    public void LogOnce_from_parallel_threads_writes_exactly_once()
+    {
+        var sink = new ParallelSink();
+        var log = new WayfindingLog(sink);
+        const int threads = 32;
+        using var start = new Barrier(threads);
+        var workers = new Thread[threads];
+        for (var i = 0; i < threads; i++)
+        {
+            workers[i] = new Thread(() =>
+            {
+                start.SignalAndWait();
+                log.LogOnce("gate:parallel", LogLevel.Warning, "parallel");
+            });
+        }
+
+        foreach (var worker in workers)
+        {
+            worker.Start();
+        }
+
+        foreach (var worker in workers)
+        {
+            Assert.True(worker.Join(TimeSpan.FromSeconds(10)));
+        }
+
+        Assert.Equal(1, sink.Count);
+        Assert.Equal("[wayfinding] parallel", sink.OnlyLine);
+    }
+
+    [Fact]
     public void Debug_lines_follow_verbosity()
     {
         var sink = new ListSink();
@@ -77,5 +108,43 @@ public class LoggingAndGuardTests
         Assert.Equal(LogLevel.Error, line.Level);
         Assert.StartsWith("[wayfinding] ", line.Line, StringComparison.Ordinal);
         Assert.Contains("boom", line.Line, StringComparison.Ordinal);
+    }
+
+    private sealed class ParallelSink : ILogSink
+    {
+        private readonly object gate = new();
+        private int count;
+        private string? line;
+
+        public int Count
+        {
+            get
+            {
+                lock (gate)
+                {
+                    return count;
+                }
+            }
+        }
+
+        public string? OnlyLine
+        {
+            get
+            {
+                lock (gate)
+                {
+                    return line;
+                }
+            }
+        }
+
+        public void Write(LogLevel level, string written)
+        {
+            lock (gate)
+            {
+                count++;
+                line = written;
+            }
+        }
     }
 }
