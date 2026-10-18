@@ -64,12 +64,14 @@ public partial class WayfindingModSystem : ModSystem
     public override void StartClientSide(ICoreClientAPI api)
     {
         capi = api;
-        Log.Verbosity = ClientConfigStore.Load(api, Log).debugVerbosity;
+        ApplyClientConfig(ClientConfigStore.Load(api, Log));
         RunGate();
         if (Gate.IsEnabled(Feature.MapLayer))
         {
             RegisterWayfindingLayer(api);
         }
+
+        RegisterHotkeys(api);
 
         api.Event.LevelFinalize += OnLevelFinalize;
         api.Event.LeaveWorld += OnLeaveWorld;

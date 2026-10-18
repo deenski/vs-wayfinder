@@ -86,6 +86,31 @@ public static class FeatureCatalog
         "HUD",
         MemberKind.Field);
 
+    public static readonly MemberRequirement RegisterHotKey = new(
+        "Vintagestory.API.Client.IInputAPI",
+        "RegisterHotKey",
+        MemberKind.Method);
+
+    public static readonly MemberRequirement SetHotKeyHandler = new(
+        "Vintagestory.API.Client.IInputAPI",
+        "SetHotKeyHandler",
+        MemberKind.Method);
+
+    public static readonly MemberRequirement GetHotKeyByCode = new(
+        "Vintagestory.API.Client.IInputAPI",
+        "GetHotKeyByCode",
+        MemberKind.Method);
+
+    public static readonly MemberRequirement MouseDown = new(
+        "Vintagestory.API.Client.IClientEventAPI",
+        "MouseDown",
+        MemberKind.Event);
+
+    public static readonly MemberRequirement DialogTypeDialog = new(
+        "Vintagestory.API.Client.EnumDialogType",
+        "Dialog",
+        MemberKind.Field);
+
     private static readonly IReadOnlyList<MemberRequirement> MapLayerMembers =
     [
         MapLayers,
@@ -122,6 +147,15 @@ public static class FeatureCatalog
         DialogTypeHud,
     ];
 
+    private static readonly IReadOnlyList<MemberRequirement> ClientInputMembers =
+    [
+        RegisterHotKey,
+        SetHotKeyHandler,
+        GetHotKeyByCode,
+        MouseDown,
+        DialogTypeDialog,
+    ];
+
     public static readonly IReadOnlyList<Feature> All =
     [
         Feature.MapLayer,
@@ -129,6 +163,7 @@ public static class FeatureCatalog
         Feature.Waypoints,
         Feature.RemoteTracking,
         Feature.MinimapEdge,
+        Feature.ClientInput,
     ];
 
     public static IReadOnlyList<MemberRequirement> Requirements(Feature feature)
@@ -140,6 +175,7 @@ public static class FeatureCatalog
             Feature.Waypoints => WaypointMembers,
             Feature.RemoteTracking => RemoteTrackingMembers,
             Feature.MinimapEdge => MinimapEdgeMembers,
+            Feature.ClientInput => ClientInputMembers,
             _ => throw new ArgumentOutOfRangeException(nameof(feature), feature, "Unknown feature."),
         };
     }

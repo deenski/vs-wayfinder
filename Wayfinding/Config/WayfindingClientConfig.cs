@@ -1,12 +1,15 @@
 using System;
 using Vintagestory.API.Client;
 using Wayfinding.Infra;
+using Wayfinding.Pathing.Map;
 
 namespace Wayfinding;
 
 public sealed class WayfindingClientConfig
 {
     public int debugVerbosity = 0;
+
+    public string clickBinding = "CtrlLeft";
 }
 
 public static class ClientConfigStore
@@ -30,9 +33,18 @@ public static class ClientConfigStore
         config ??= new WayfindingClientConfig();
         var original = config.debugVerbosity;
         config.debugVerbosity = WayfindingLog.ClampVerbosity(config.debugVerbosity);
-        if (missing || config.debugVerbosity != original)
+        ClickBindings.Parse(config.clickBinding, out bool bindingOk);
+        if (!bindingOk)
         {
-            if (!missing)
+            log.Log(
+                LogLevel.Warning,
+                "clickBinding \"" + config.clickBinding + "\" is not CtrlLeft, Middle, or Both; using CtrlLeft");
+            config.clickBinding = "CtrlLeft";
+        }
+
+        if (missing || config.debugVerbosity != original || !bindingOk)
+        {
+            if (!missing && config.debugVerbosity != original)
             {
                 log.Log(
                     LogLevel.Warning,
