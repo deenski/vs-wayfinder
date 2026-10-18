@@ -7,7 +7,7 @@ using Wayfinding.Infra;
 
 namespace Wayfinding;
 
-public class WayfindingModSystem : ModSystem
+public partial class WayfindingModSystem : ModSystem
 {
     private ICoreClientAPI? capi;
     private ClientNavSession? navigation;
@@ -70,6 +70,8 @@ public class WayfindingModSystem : ModSystem
         api.Event.LeaveWorld += OnLeaveWorld;
         NavCommands.Register(api, this);
         navigation = NavTargetCommands.Register(api, this);
+        RegisterTeammateTether(api);
+        RegisterDimensionAndArrival(api);
     }
 
     public override void StartServerSide(ICoreServerAPI api)
@@ -113,13 +115,17 @@ public class WayfindingModSystem : ModSystem
 
     public override void Dispose()
     {
-        if (capi != null)
+        if (capi is not null)
         {
             capi.Event.LevelFinalize -= OnLevelFinalize;
             capi.Event.LeaveWorld -= OnLeaveWorld;
             capi = null;
         }
 
+        // Arrival (KAN-23) before the tether (KAN-22). Both hooks are safe when
+        // their Register methods never ran, including on the server instance.
+        DisposeDimensionAndArrival();
+        DisposeTeammateTether();
         navigation?.OnLeaveWorld();
         navigation?.Dispose();
         navigation = null;
