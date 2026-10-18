@@ -10,6 +10,7 @@ namespace Wayfinding;
 public class WayfindingModSystem : ModSystem
 {
     private ICoreClientAPI? capi;
+    private ClientNavSession? navigation;
 
     public VersionGate Gate { get; } = new();
 
@@ -19,7 +20,12 @@ public class WayfindingModSystem : ModSystem
 
     public RenderGuard RenderGuard { get; private set; } = null!;
 
-    public NavTarget Target { get; } = new();
+    /// <summary>
+    /// Active navigation target. Null on the server. The map layer reads this on
+    /// the client main thread and draws nothing while <see cref="NavTargets.MapAllowed"/>
+    /// is false.
+    /// </summary>
+    public NavTargets? NavTargets => navigation?.Targets;
 
     public WayfindingMapLayer? MapLayer { get; private set; }
 
@@ -61,8 +67,9 @@ public class WayfindingModSystem : ModSystem
         }
 
         api.Event.LevelFinalize += OnLevelFinalize;
-        api.Event.LeaveWorld += Target.Clear;
+        api.Event.LeaveWorld += OnLeaveWorld;
         NavCommands.Register(api, this);
+        navigation = NavTargetCommands.Register(api, this);
     }
 
     public override void StartServerSide(ICoreServerAPI api)
@@ -96,6 +103,12 @@ public class WayfindingModSystem : ModSystem
         }
 
         Gate.Notify(new GateNotice(capi));
+        navigation?.OnLevelFinalize();
+    }
+
+    private void OnLeaveWorld()
+    {
+        navigation?.OnLeaveWorld();
     }
 
     public override void Dispose()
@@ -103,11 +116,13 @@ public class WayfindingModSystem : ModSystem
         if (capi != null)
         {
             capi.Event.LevelFinalize -= OnLevelFinalize;
-            capi.Event.LeaveWorld -= Target.Clear;
+            capi.Event.LeaveWorld -= OnLeaveWorld;
             capi = null;
         }
 
-        Target.Clear();
+        navigation?.OnLeaveWorld();
+        navigation?.Dispose();
+        navigation = null;
         base.Dispose();
     }
 }

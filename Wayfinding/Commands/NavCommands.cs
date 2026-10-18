@@ -1,3 +1,4 @@
+using System;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Server;
@@ -9,8 +10,8 @@ public static class NavCommands
 {
     public static void Register(ICoreClientAPI capi, WayfindingModSystem mod)
     {
-        // One root. GetOrCreate so a later mod system can add subcommands (KAN-21
-        // share/team) without Create throwing when this root already exists.
+        // One root. GetOrCreate so NavTargetCommands and a later mod system can add
+        // subcommands without Create throwing when this root already exists.
         capi.ChatCommands
             .GetOrCreate("nav")
             .WithDescription("Wayfinding")
@@ -24,25 +25,19 @@ public static class NavCommands
                     mod.Log.Verbosity,
                     mod.Metrics)))
             .EndSubCommand()
-            .BeginSubCommand("coord")
-                .WithDescription("Set a spawn-relative target and draw a straight line. Usage: .nav coord <x> <z>")
-                .RequiresPrivilege(Privilege.chat)
-                .WithArgs(capi.ChatCommands.Parsers.Int("x"), capi.ChatCommands.Parsers.Int("z"))
-                .HandleWith(args => SetCoordinate(mod, args))
-            .EndSubCommand()
-            .BeginSubCommand("off")
-                .WithDescription("Clear the wayfinding target.")
-                .RequiresPrivilege(Privilege.chat)
-                .HandleWith(_ => ClearTarget(mod))
-            .EndSubCommand()
             .BeginSubCommand("debug")
-                .WithDescription("Map layer debug. Subcommands: on, clear, throw.")
+                .WithDescription("Map layer debug. Subcommands: on, off, clear, throw.")
                 .RequiresPrivilege(Privilege.chat)
                 .HandleWith(_ => TextCommandResult.Success(Status(mod), null))
                 .BeginSubCommand("on")
                     .WithDescription("Draw a sample line 96 blocks east and 48 blocks south of the player.")
                     .RequiresPrivilege(Privilege.chat)
                     .HandleWith(_ => SampleTarget(mod))
+                .EndSubCommand()
+                .BeginSubCommand("off")
+                    .WithDescription("Clear the wayfinding target.")
+                    .RequiresPrivilege(Privilege.chat)
+                    .HandleWith(_ => ClearTarget(mod))
                 .EndSubCommand()
                 .BeginSubCommand("clear")
                     .WithDescription("Clear the wayfinding target.")
@@ -57,50 +52,40 @@ public static class NavCommands
             .EndSubCommand();
     }
 
-    static TextCommandResult SetCoordinate(WayfindingModSystem mod, TextCommandCallingArgs args)
-    {
-        ICoreClientAPI? capi = mod.Client;
-        if (capi?.World == null)
-        {
-            return TextCommandResult.Success("Wayfinding is not on a client world yet.", null);
-        }
-
-        int x = (int)args.Parsers[0].GetValue();
-        int z = (int)args.Parsers[1].GetValue();
-        var spawn = capi.World.DefaultSpawnPosition.AsBlockPos;
-        double worldX = spawn.X + x;
-        double worldZ = spawn.Z + z;
-        int y = capi.World.BlockAccessor.GetRainMapHeightAt((int)worldX, (int)worldZ);
-        mod.Target.Set(worldX, y, worldZ, NavTargetKind.Coordinate, null);
-        return TextCommandResult.Success(
-            "Target set to spawn "
-            + x + ", " + z
-            + " (world " + (int)worldX + ", " + y + ", " + (int)worldZ + "). "
-            + GuardNote(mod),
-            null);
-    }
-
     static TextCommandResult SampleTarget(WayfindingModSystem mod)
     {
+        NavTargets? targets = mod.NavTargets;
         var pos = mod.Client?.World.Player?.Entity?.Pos;
-        if (pos == null)
+        if (targets == null || pos == null)
         {
             return TextCommandResult.Success("No player position yet.", null);
         }
 
-        mod.Target.Set(
-            pos.X + WayfindingMapLayer.SampleOffsetX,
-            pos.Y,
-            pos.Z + WayfindingMapLayer.SampleOffsetZ,
-            NavTargetKind.Coordinate,
-            null);
-        return TextCommandResult.Success("Drawing a sample line. " + Status(mod), null);
+        var coordinate = new AbsoluteCoord(
+            (int)Math.Floor(pos.X + WayfindingMapLayer.SampleOffsetX),
+            (int)Math.Floor(pos.Y),
+            (int)Math.Floor(pos.Z + WayfindingMapLayer.SampleOffsetZ));
+        NavReply reply = targets.SetCoordinate(coordinate, Spawn(mod));
+        if (!reply.Ok)
+        {
+            return TextCommandResult.Error(reply.Message);
+        }
+
+        return TextCommandResult.Success(reply.Message + " " + Status(mod), null);
     }
 
     static TextCommandResult ClearTarget(WayfindingModSystem mod)
     {
-        mod.Target.Clear();
-        return TextCommandResult.Success("Wayfinding target cleared.", null);
+        NavTargets? targets = mod.NavTargets;
+        if (targets == null)
+        {
+            return TextCommandResult.Success("Wayfinding is not on a client world yet.", null);
+        }
+
+        NavReply reply = targets.Off();
+        return reply.Ok
+            ? TextCommandResult.Success(reply.Message, null)
+            : TextCommandResult.Error(reply.Message);
     }
 
     static TextCommandResult ArmThrow(WayfindingModSystem mod)
@@ -122,9 +107,9 @@ public static class NavCommands
 
     static string Status(WayfindingModSystem mod)
     {
-        string target = mod.Target.Has
-            ? "target " + (int)mod.Target.X + ", " + (int)mod.Target.Y + ", " + (int)mod.Target.Z
-            : "no target";
+        string target = mod.NavTargets == null
+            ? "no target"
+            : mod.NavTargets.Describe(Spawn(mod));
         string layer = mod.MapLayer == null ? "layer not loaded" : "layer loaded";
         return target + "; " + layer + ". " + GuardNote(mod);
     }
@@ -134,5 +119,17 @@ public static class NavCommands
         return mod.RenderGuard.LayerEnabled
             ? "Render guard is on."
             : "Render guard has disabled the layer.";
+    }
+
+    static SpawnOrigin? Spawn(WayfindingModSystem mod)
+    {
+        var pos = mod.Client?.World?.DefaultSpawnPosition;
+        if (pos == null)
+        {
+            return null;
+        }
+
+        var block = pos.AsBlockPos;
+        return new SpawnOrigin(block.X, block.Z);
     }
 }

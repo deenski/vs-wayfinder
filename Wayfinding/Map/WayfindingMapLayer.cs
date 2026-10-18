@@ -45,6 +45,9 @@ public sealed class WayfindingMapLayer : MapLayer
     string? labelText;
     int labelMeters = -1;
     int labelRevision;
+    int targetRevision;
+    NavTargets? watched;
+    bool waypointDrawDisabled;
     int uploadedMeters = -1;
     long uploadedAtMs;
     bool disposed;
@@ -73,6 +76,7 @@ public sealed class WayfindingMapLayer : MapLayer
         drawGuarded = RenderGuarded;
         Active = true;
         mod.AttachMapLayer(this);
+        WatchTargets();
     }
 
     public void ArmRenderException()
@@ -132,8 +136,9 @@ public sealed class WayfindingMapLayer : MapLayer
             }
         }
 
+        WatchTargets();
         DropStaleLabel();
-        if (!Active || !HoverLabelPolicy.Show(mod.Target.Has, mod.RenderGuard.LayerEnabled))
+        if (!Active || !HoverLabelPolicy.Show(HasTarget(), mod.RenderGuard.LayerEnabled))
         {
             return;
         }
@@ -231,6 +236,7 @@ public sealed class WayfindingMapLayer : MapLayer
         }
 
         disposed = true;
+        UnwatchTargets();
         quad?.Dispose();
         quad = null;
         labelTexture?.Dispose();
@@ -247,7 +253,7 @@ public sealed class WayfindingMapLayer : MapLayer
         }
 
         GuiElementMap? map = drawing;
-        if (map == null || !mod.Target.Has || capi?.World.Player?.Entity == null)
+        if (map == null || capi?.World.Player?.Entity == null || !TryResolve(out double targetX, out double targetY, out double targetZ))
         {
             return;
         }
@@ -255,7 +261,7 @@ public sealed class WayfindingMapLayer : MapLayer
         DropStaleLabel();
         var pos = capi.World.Player.Entity.Pos;
         GridPos from = CellOf(pos.X, pos.Y, pos.Z);
-        GridPos to = CellOf(mod.Target.X, mod.Target.Y, mod.Target.Z);
+        GridPos to = CellOf(targetX, targetY, targetZ);
         FineRoute route = StraightUnknown(from, to);
         Draw(map, route);
     }
@@ -509,17 +515,21 @@ public sealed class WayfindingMapLayer : MapLayer
 
     bool TryApplyHit(Waypoint? waypoint, PacketPlayerPosition? player)
     {
-        if (waypoint?.Position != null)
+        NavTargets? targets = mod.NavTargets;
+        if (targets == null)
         {
-            mod.Target.Set(waypoint.Position.X, waypoint.Position.Y, waypoint.Position.Z, NavTargetKind.Waypoint, waypoint.Guid);
-            Say("waypoint '" + (waypoint.Title ?? waypoint.Guid) + "'");
+            return false;
+        }
+
+        if (waypoint?.Position != null && Guid.TryParse(waypoint.Guid, out Guid id) && id != Guid.Empty)
+        {
+            Say(targets.SetWaypoint(id, waypoint.Title).Message);
             return true;
         }
 
         if (player != null && TrackedPlayerPosition.TryHorizontal(player, out double playerX, out double playerZ))
         {
-            mod.Target.Set(playerX, PlayerFeetY(player), playerZ, NavTargetKind.Coordinate, null);
-            Say("player " + player.PlayerUid);
+            Say(targets.SetCoordinate(FloorCoord(playerX, PlayerFeetY(player), playerZ), Spawn()).Message);
             return true;
         }
 
@@ -718,25 +728,36 @@ public sealed class WayfindingMapLayer : MapLayer
             return;
         }
 
-        int y = capi.World.BlockAccessor.GetRainMapHeightAt((int)Math.Floor(worldX), (int)Math.Floor(worldZ));
-        mod.Target.Set(worldX, y, worldZ, NavTargetKind.Coordinate, null);
-        Say("coordinate");
-    }
-
-    void Say(string hit)
-    {
-        if (capi == null)
+        NavTargets? targets = mod.NavTargets;
+        if (targets == null)
         {
             return;
         }
 
-        var spawn = capi.World.DefaultSpawnPosition.AsBlockPos;
-        int sx = (int)mod.Target.X - spawn.X;
-        int sz = (int)mod.Target.Z - spawn.Z;
-        capi.ShowChatMessage(
-            "[wayfinding] target "
-            + (int)mod.Target.X + ", " + (int)mod.Target.Y + ", " + (int)mod.Target.Z
-            + " (spawn " + sx + ", " + sz + ") " + hit);
+        int y = capi.World.BlockAccessor.GetRainMapHeightAt((int)Math.Floor(worldX), (int)Math.Floor(worldZ));
+        Say(targets.SetCoordinate(FloorCoord(worldX, y, worldZ), Spawn()).Message);
+    }
+
+    void Say(string message)
+    {
+        capi?.ShowChatMessage("[wayfinding] " + message);
+    }
+
+    SpawnOrigin? Spawn()
+    {
+        var pos = capi?.World?.DefaultSpawnPosition;
+        if (pos == null)
+        {
+            return null;
+        }
+
+        var block = pos.AsBlockPos;
+        return new SpawnOrigin(block.X, block.Z);
+    }
+
+    static AbsoluteCoord FloorCoord(double x, double y, double z)
+    {
+        return new AbsoluteCoord((int)Math.Floor(x), (int)Math.Floor(y), (int)Math.Floor(z));
     }
 
     bool CtrlDown =>
@@ -770,7 +791,7 @@ public sealed class WayfindingMapLayer : MapLayer
 
     void DropStaleLabel()
     {
-        if (!HoverLabelPolicy.ShouldReset(labelRevision, mod.Target.Revision, mod.Target.Has, mod.RenderGuard.LayerEnabled))
+        if (!HoverLabelPolicy.ShouldReset(labelRevision, targetRevision, HasTarget(), mod.RenderGuard.LayerEnabled))
         {
             return;
         }
@@ -778,7 +799,133 @@ public sealed class WayfindingMapLayer : MapLayer
         labelText = null;
         labelMeters = -1;
         uploadedMeters = -1;
-        labelRevision = mod.Target.Revision;
+        labelRevision = targetRevision;
+    }
+
+    void WatchTargets()
+    {
+        NavTargets? targets = mod.NavTargets;
+        if (ReferenceEquals(watched, targets))
+        {
+            return;
+        }
+
+        UnwatchTargets();
+        if (targets == null)
+        {
+            return;
+        }
+
+        targets.Changed += OnTargetChanged;
+        watched = targets;
+        targetRevision++;
+    }
+
+    void UnwatchTargets()
+    {
+        if (watched == null)
+        {
+            return;
+        }
+
+        watched.Changed -= OnTargetChanged;
+        watched = null;
+    }
+
+    void OnTargetChanged()
+    {
+        targetRevision++;
+    }
+
+    bool HasTarget()
+    {
+        NavTargets? targets = mod.NavTargets;
+        return targets != null && targets.MapAllowed && targets.Current.Kind != NavTargetKind.None;
+    }
+
+    bool TryResolve(out double x, out double y, out double z)
+    {
+        x = 0;
+        y = 0;
+        z = 0;
+        NavTargets? targets = mod.NavTargets;
+        if (targets == null || !targets.MapAllowed)
+        {
+            return false;
+        }
+
+        NavTarget current = targets.Current;
+        if (current.Kind == NavTargetKind.Coordinate && current.Coordinate is AbsoluteCoord coord)
+        {
+            x = coord.X;
+            y = coord.Y ?? 0;
+            z = coord.Z;
+            return true;
+        }
+
+        if (current.Kind != NavTargetKind.Waypoint || !mod.IsEnabled(Feature.Waypoints) || waypointDrawDisabled)
+        {
+            return false;
+        }
+
+        try
+        {
+            return TryWaypointPosition(current.WaypointId, out x, out y, out z);
+        }
+        catch (Exception ex)
+        {
+            waypointDrawDisabled = true;
+            mod.Log.LogOnce("map-waypoint-draw", LogLevel.Error, "waypoint target drawing disabled after " + ex.GetType().Name + ": " + ex.Message);
+            return false;
+        }
+    }
+
+    bool TryWaypointPosition(Guid id, out double x, out double y, out double z)
+    {
+        x = 0;
+        y = 0;
+        z = 0;
+        if (capi == null)
+        {
+            return false;
+        }
+
+        var layers = capi.ModLoader.GetModSystem<WorldMapManager>().MapLayers;
+        if (layers == null)
+        {
+            return false;
+        }
+
+        WaypointMapLayer? waypointLayer = null;
+        for (int i = 0; i < layers.Count; i++)
+        {
+            if (layers[i] is WaypointMapLayer found)
+            {
+                waypointLayer = found;
+                break;
+            }
+        }
+
+        if (waypointLayer?.ownWaypoints == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < waypointLayer.ownWaypoints.Count; i++)
+        {
+            Waypoint? wp = waypointLayer.ownWaypoints[i];
+            if (wp?.Position == null || !Guid.TryParse(wp.Guid, out Guid wpId) || wpId != id)
+            {
+                continue;
+            }
+
+            x = wp.Position.X;
+            y = wp.Position.Y;
+            z = wp.Position.Z;
+            return true;
+        }
+
+        return false;
     }
 
     void NoteMeters(int meters)
@@ -795,13 +942,13 @@ public sealed class WayfindingMapLayer : MapLayer
     bool TryMeters(out int meters)
     {
         meters = 0;
-        if (capi?.World.Player?.Entity == null || !mod.Target.Has)
+        if (capi?.World.Player?.Entity == null || !TryResolve(out double targetX, out _, out double targetZ))
         {
             return false;
         }
 
         var pos = capi.World.Player.Entity.Pos;
-        meters = MapMath.RoundedMeters(MapMath.HorizontalDistance(pos.X, pos.Z, mod.Target.X, mod.Target.Z));
+        meters = MapMath.RoundedMeters(MapMath.HorizontalDistance(pos.X, pos.Z, targetX, targetZ));
         return true;
     }
 }

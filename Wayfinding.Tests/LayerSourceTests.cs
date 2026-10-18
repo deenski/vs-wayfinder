@@ -12,6 +12,8 @@ public class LayerSourceTests
         Assert.Contains("LabelUpload.ShouldUpload", layer, StringComparison.Ordinal);
         Assert.DoesNotContain("snapToPlayer", layer, StringComparison.Ordinal);
         Assert.Contains("DialogType == EnumDialogType.HUD", layer, StringComparison.Ordinal);
+        Assert.Contains("targets.Changed += OnTargetChanged", layer, StringComparison.Ordinal);
+        Assert.DoesNotContain("mod.Target", layer, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -58,8 +58,9 @@ public class InfraBoundaryTests
         Assert.Contains("RegisterMapLayer<WayfindingMapLayer>", mod, StringComparison.Ordinal);
         Assert.Contains("public override void Dispose()", mod, StringComparison.Ordinal);
         Assert.Contains("LevelFinalize -= OnLevelFinalize", mod, StringComparison.Ordinal);
-        Assert.Contains("LeaveWorld -= Target.Clear", mod, StringComparison.Ordinal);
-        Assert.Contains("Target.Clear()", mod, StringComparison.Ordinal);
+        Assert.Contains("LeaveWorld -= OnLeaveWorld", mod, StringComparison.Ordinal);
+        Assert.Contains("navigation?.OnLeaveWorld()", mod, StringComparison.Ordinal);
+        Assert.Contains("NavTargetCommands.Register", mod, StringComparison.Ordinal);
     }
 
     [Fact]

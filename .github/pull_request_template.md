@@ -1,3 +1,5 @@
+Process rules live only in Jira KAN-40 and this template. Only the assigned reviewer gives next steps on a PR.
+
 ## Ticket
 
 `KAN-##`
@@ -5,6 +7,15 @@
 ## Summary
 
 <!-- 1 to 3 sentences on what changed and why. -->
+
+## Author pre-review checklist
+
+- [ ] No conflicts with main
+- [ ] CI green (guard-and-unit-tests, build-and-load)
+- [ ] At least one "can this test fail?" probe done (break the code and watch the test fail)
+- [ ] Every claimed fix checked in the code at the head sha
+
+With two reviewers, both review the same head at the same time, and the author batches all fixes into one push.
 
 ## Tests
 
