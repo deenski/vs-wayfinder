@@ -1,0 +1,113 @@
+name: server-image
+
+# workflow_dispatch only. The push-to-main trigger, and any trigger that
+# watches ci/vs-version.txt, come back once the package is confirmed private.
+# A merge to main must not publish the server image.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Server version to bake (^\\d+\\.\\d+\\.\\d+(-rc\\.\\d+)?$). Ignored by the bootstrap tag."
+        required: true
+        default: "1.22.7"
+        type: string
+      bootstrap:
+        description: "Push an empty non-game image tagged bootstrap. Does not download the server."
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: publish-server-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Validate version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # Same pattern as ^\d+\.\d+\.\d+(-rc\.\d+)?$
+          if [[ ! "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "version must match ^\\d+\\.\\d+\\.\\d+(-rc\\.\\d+)?\$: ${INPUT_VERSION}" >&2
+            exit 1
+          fi
+          echo "version=${INPUT_VERSION}" >> "$GITHUB_OUTPUT"
+        id: version
+
+      # Before any push. GITHUB_TOKEN often cannot read a private user package.
+      # A public reading fails the job even when the repository variable is set.
+      # 404 does not count as private. See ci/check-ghcr-visibility.py.
+      - name: Refuse a public package before the empty bootstrap push
+        if: ${{ inputs.bootstrap == true }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_PACKAGE_CONFIRMED_PRIVATE: ${{ vars.GHCR_PACKAGE_CONFIRMED_PRIVATE }}
+        run: python3 ci/check-ghcr-visibility.py refuse-public
+
+      - name: Require a private package before downloading or pushing the server
+        if: ${{ inputs.bootstrap != true }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_PACKAGE_CONFIRMED_PRIVATE: ${{ vars.GHCR_PACKAGE_CONFIRMED_PRIVATE }}
+        run: python3 ci/check-ghcr-visibility.py require-private
+
+      - name: Read stable.json
+        if: ${{ inputs.bootstrap != true }}
+        id: meta
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: python3 ci/resolve-server-matrix.py --env-version "$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify the server
+        if: ${{ inputs.bootstrap != true }}
+        env:
+          URL: ${{ steps.meta.outputs.url }}
+          EXPECTED_MD5: ${{ steps.meta.outputs.md5 }}
+          DEST: ${{ runner.temp }}/vs-context
+        run: bash ci/download-server.sh
+
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
+
+      - name: Push the empty bootstrap image
+        if: ${{ inputs.bootstrap == true }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/deenski/vs-wayfinder-server:bootstrap"
+          docker build -f ci/Dockerfile.bootstrap -t "$image" ci/bootstrap
+          labels="$(docker image inspect --format '{{json .Config.Labels}}' "$image")"
+          if printf '%s' "$labels" | grep -F 'org.opencontainers.image.source' >/dev/null; then
+            echo "refusing to push an image with org.opencontainers.image.source" >&2
+            exit 1
+          fi
+          docker push "$image"
+
+      - name: Build and push the server image
+        if: ${{ inputs.bootstrap != true }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DEST: ${{ runner.temp }}/vs-context
+        run: |
+          set -euo pipefail
+          image="ghcr.io/deenski/vs-wayfinder-server:${VERSION}"
+          # No org.opencontainers.image.source label. That label would link the
+          # package to this public repo before publish.
+          docker build -f ci/Dockerfile -t "$image" "$DEST"
+          labels="$(docker image inspect --format '{{json .Config.Labels}}' "$image")"
+          if printf '%s' "$labels" | grep -F 'org.opencontainers.image.source' >/dev/null; then
+            echo "refusing to push an image with org.opencontainers.image.source" >&2
+            exit 1
+          fi
+          docker push "$image"

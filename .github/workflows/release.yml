@@ -1,0 +1,70 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+
+      - name: Resolve stable server
+        id: server
+        run: python3 ci/resolve-server-matrix.py --env-stable >> "$GITHUB_OUTPUT"
+
+      - name: Acquire Vintage Story server
+        uses: ./.github/actions/acquire-vs-server
+        with:
+          version: ${{ steps.server.outputs.version }}
+          md5: ${{ steps.server.outputs.md5 }}
+          url: ${{ steps.server.outputs.url }}
+          dest: ${{ runner.temp }}/vs-server
+          use-ghcr: "true"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          actor: ${{ github.actor }}
+
+      - name: Release build
+        env:
+          VINTAGE_STORY: ${{ runner.temp }}/vs-server
+        run: dotnet build -c Release
+
+      - name: Assert mod zip
+        id: zip
+        run: |
+          zip="$(python3 ci/assert-mod-zip.py)"
+          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ZIP: ${{ steps.zip.outputs.zip }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          case "$ZIP" in
+            Releases/wayfinding_*.zip) ;;
+            *)
+              echo "refusing to attach $ZIP" >&2
+              exit 1
+              ;;
+          esac
+          notes="$(mktemp)"
+          {
+            echo "Mod zip only (\`$ZIP\`)."
+            echo
+            echo "Upload this zip to the Vintage Story Mod DB by hand. The steps are in the README."
+            echo "This release does not include the game server or any game DLL."
+          } > "$notes"
+          gh release create "$TAG" "$ZIP" --title "$TAG" --notes-file "$notes"
+          rm -f "$notes"
