@@ -57,8 +57,11 @@ public sealed class WayfindingMapLayer : MapLayer
     bool waypointHitsDisabled;
     bool playerHitsDisabled;
     bool minimapDisabled;
-    float dragPixels;
-    bool dragOpen;
+    bool mouseDownHooked;
+    bool hasPress;
+    MapMouseButton pressButton;
+    int pressX;
+    int pressY;
     FineRoute? straight;
     GridPos straightFrom;
     GridPos straightTo;
@@ -77,6 +80,11 @@ public sealed class WayfindingMapLayer : MapLayer
         Active = true;
         mod.AttachMapLayer(this);
         WatchTargets();
+        if (capi != null && mod.IsEnabled(Feature.ClientInput))
+        {
+            capi.Event.MouseDown += OnMouseDown;
+            mouseDownHooked = true;
+        }
     }
 
     public void ArmRenderException()
@@ -84,18 +92,9 @@ public sealed class WayfindingMapLayer : MapLayer
         armThrow = true;
     }
 
-    public override void OnTick(float dt)
-    {
-        if (capi != null && !capi.Input.MouseButton.Left)
-        {
-            dragPixels = 0;
-            dragOpen = false;
-        }
-    }
-
     public override void Render(GuiElementMap map, float dt)
     {
-        if (disposed || !Active || capi == null || !mod.RenderGuard.LayerEnabled)
+        if (disposed || !Active || capi == null || !mod.RenderGuard.LayerEnabled || !mod.RouteVisible)
         {
             return;
         }
@@ -118,22 +117,9 @@ public sealed class WayfindingMapLayer : MapLayer
 
     public override void OnMouseMoveClient(MouseEvent args, GuiElementMap mapElem, StringBuilder hoverText)
     {
-        if (capi == null)
+        if (capi == null || !mod.RouteVisible)
         {
             return;
-        }
-
-        if (MapInputPolicy.AllowsInput(inputDisabled) && mod.IsEnabled(Feature.MapViewport))
-        {
-            try
-            {
-                AccountDrag(args, mapElem);
-            }
-            catch (Exception ex)
-            {
-                inputDisabled = true;
-                mod.Log.LogOnce("map-input", LogLevel.Error, "map input disabled after " + ex.GetType().Name + ": " + ex.Message);
-            }
         }
 
         WatchTargets();
@@ -160,17 +146,23 @@ public sealed class WayfindingMapLayer : MapLayer
 
     public override void OnMouseUpClient(MouseEvent args, GuiElementMap mapElem)
     {
-        if (!MapInputPolicy.AllowsInput(inputDisabled) || capi == null || args.Handled || args.Button != EnumMouseButton.Left || !CtrlDown)
+        if (!MapInputPolicy.AllowsInput(inputDisabled) || capi == null || args.Handled || !mod.IsEnabled(Feature.ClientInput))
         {
             return;
         }
 
+        MapMouseButton button = ToButton(args.Button);
+        bool sameButton = hasPress && pressButton == button;
+        int downX = pressX;
+        int downY = pressY;
+        if (sameButton)
+        {
+            hasPress = false;
+        }
+
         bool inside = ViewPoint(args, mapElem, out float mouseX, out float mouseY);
-        bool dragged = MapClick.IsDrag(dragPixels);
-        dragPixels = 0;
-        dragOpen = false;
         if (!Active || clickDisabled || !mod.IsEnabled(Feature.MapViewport)
-            || !MapClick.IsNavigationClick(MapMouseButton.Left, ctrlHeld: true, dragged, inside))
+            || !MapSelection.IsSelection(mod.ClickBinding, button, CtrlHeld(), inside, IsWorldMapDialog(), sameButton, downX, downY, args.X, args.Y))
         {
             return;
         }
@@ -240,6 +232,12 @@ public sealed class WayfindingMapLayer : MapLayer
         }
 
         disposed = true;
+        if (mouseDownHooked && capi != null)
+        {
+            capi.Event.MouseDown -= OnMouseDown;
+            mouseDownHooked = false;
+        }
+
         UnwatchTargets();
         quad?.Dispose();
         quad = null;
@@ -499,22 +497,45 @@ public sealed class WayfindingMapLayer : MapLayer
         return capi!.ModLoader.GetModSystem<WorldMapManager>().worldMapDlg?.DialogType == EnumDialogType.HUD;
     }
 
-    void AccountDrag(MouseEvent args, GuiElementMap mapElem)
+    // Don't set Handled. The game still pans on left-down and still opens the waypoint dialog on right-up.
+    // shortcut: MouseDown has no map bounds, so a press just outside the map can still select when the
+    // release is inside and within 5 px. A longer drag from outside is rejected by that distance.
+    void OnMouseDown(MouseEvent args)
     {
-        if (mapElem.IsDragingMap)
-        {
-            if (!dragOpen)
-            {
-                dragPixels = 0;
-                dragOpen = true;
-            }
+        pressButton = ToButton(args.Button);
+        pressX = args.X;
+        pressY = args.Y;
+        hasPress = true;
+    }
 
-            dragPixels += Math.Abs(args.DeltaX) + Math.Abs(args.DeltaY);
-            return;
+    static MapMouseButton ToButton(EnumMouseButton button)
+    {
+        return button switch
+        {
+            EnumMouseButton.Left => MapMouseButton.Left,
+            EnumMouseButton.Middle => MapMouseButton.Middle,
+            EnumMouseButton.Right => MapMouseButton.Right,
+            _ => MapMouseButton.Other,
+        };
+    }
+
+    bool IsWorldMapDialog()
+    {
+        if (capi == null)
+        {
+            return false;
         }
 
-        dragOpen = false;
-        dragPixels = 0;
+        try
+        {
+            return capi.ModLoader.GetModSystem<WorldMapManager>().worldMapDlg?.DialogType == EnumDialogType.Dialog;
+        }
+        catch (Exception ex)
+        {
+            clickDisabled = true;
+            mod.Log.LogOnce("map-click", LogLevel.Error, "map click disabled after " + ex.GetType().Name + ": " + ex.Message);
+            return false;
+        }
     }
 
     bool TryApplyHit(Waypoint? waypoint, PacketPlayerPosition? player)
@@ -531,6 +552,8 @@ public sealed class WayfindingMapLayer : MapLayer
             return true;
         }
 
+        // shortcut: NavTargets.Player stays unused until a teammate position source exists.
+        // A visible player icon sets a coordinate at that position. Hidden players never get here.
         if (player != null && TrackedPlayerPosition.TryHorizontal(player, out double playerX, out double playerZ))
         {
             Say(targets.SetCoordinate(FloorCoord(playerX, PlayerFeetY(player), playerZ), Spawn()).Message);
@@ -681,6 +704,11 @@ public sealed class WayfindingMapLayer : MapLayer
                 continue;
             }
 
+            if (!PlayerPrivacy.MayHit(packet.PlayerUid, TeammateVisible(packet.PlayerUid)))
+            {
+                continue;
+            }
+
             if (!Closer(x, y, half, mouseX, mouseY, ref best))
             {
                 continue;
@@ -764,10 +792,39 @@ public sealed class WayfindingMapLayer : MapLayer
         return new AbsoluteCoord((int)Math.Floor(x), y is double feet ? (int)Math.Floor(feet) : null, (int)Math.Floor(z));
     }
 
-    bool CtrlDown =>
-        capi != null && (
-            capi.Input.KeyboardKeyStateRaw[(int)GlKeys.LControl]
-            || capi.Input.KeyboardKeyStateRaw[(int)GlKeys.RControl]);
+    bool TeammateVisible(string? uid)
+    {
+        ITeammateVisibility visibility = mod.Teams as ITeammateVisibility ?? NoTeammateVisibility.Instance;
+        return visibility.IsVisibleTeammate(uid);
+    }
+
+    bool CtrlHeld()
+    {
+        if (capi == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            bool right = KeyDown((int)GlKeys.RControl);
+            var ctrl = capi.Input.GetHotKeyByCode("ctrl");
+            int code = ctrl?.CurrentMapping == null ? -1 : ctrl.CurrentMapping.KeyCode;
+            return KeyDown(code) || right;
+        }
+        catch (Exception ex)
+        {
+            inputDisabled = true;
+            mod.Log.LogOnce("map-input", LogLevel.Error, "map input disabled after " + ex.GetType().Name + ": " + ex.Message);
+            return false;
+        }
+    }
+
+    bool KeyDown(int code)
+    {
+        var keys = capi!.Input.KeyboardKeyStateRaw;
+        return (uint)code < (uint)keys.Length && keys[code];
+    }
 
     static bool ViewPoint(MouseEvent args, GuiElementMap map, out float x, out float y)
     {
