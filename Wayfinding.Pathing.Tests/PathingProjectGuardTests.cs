@@ -73,7 +73,7 @@ public class PathingProjectGuardTests
     }
 
     [Fact]
-    public void Testing_build_fails_for_a_game_reference()
+    public async Task Testing_build_fails_for_a_game_reference()
     {
         string temp = Path.Combine(Path.GetTempPath(), "wayfinding-testing-guard-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temp);
@@ -102,7 +102,7 @@ public class PathingProjectGuardTests
             Task<string> stdout = process.StandardOutput.ReadToEndAsync();
             Task<string> stderr = process.StandardError.ReadToEndAsync();
             Assert.True(process.WaitForExit(TimeSpan.FromMinutes(2)), "dotnet build did not exit.");
-            string output = stdout.Result + stderr.Result;
+            string output = await stdout + await stderr;
 
             Assert.NotEqual(0, process.ExitCode);
             Assert.Contains("Wayfinding.Pathing.Testing must not reference game assemblies", output, StringComparison.Ordinal);
