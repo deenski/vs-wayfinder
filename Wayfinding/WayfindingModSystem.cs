@@ -48,11 +48,9 @@ public class WayfindingModSystem : ModSystem
         }
 
         api.Event.LevelFinalize += OnLevelFinalize;
-        // One root. NavCommands adds stats and KAN-17's debug subcommands.
-        // TeamService adds share and team. Both use GetOrCreate; Create throws
-        // if this root already exists.
-        NavCommands.Register(api, this);
+        // NavCommands owns the one .nav root. share and team are subcommands of it.
         _teams = new TeamService(api, Log);
+        NavCommands.Register(api, this, _teams);
         _teams.Start();
     }
 

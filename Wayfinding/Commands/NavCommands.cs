@@ -2,16 +2,16 @@ using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Server;
 using Wayfinding.Infra;
+using Wayfinding.Teams;
 
 namespace Wayfinding;
 
 public static class NavCommands
 {
-    public static void Register(ICoreClientAPI capi, WayfindingModSystem mod)
+    public static void Register(ICoreClientAPI capi, WayfindingModSystem mod, TeamService teams)
     {
-        // One root. GetOrCreate so a later mod system can add subcommands (KAN-21
-        // share/team) without Create throwing when this root already exists.
-        capi.ChatCommands
+        // One root. stats, KAN-17 debug, and KAN-21 share/team all hang off it.
+        var nav = capi.ChatCommands
             .GetOrCreate("nav")
             .WithDescription("Wayfinding")
             .RequiresPrivilege(Privilege.chat)
@@ -48,6 +48,8 @@ public static class NavCommands
                     .HandleWith(_ => ArmThrow())
                 .EndSubCommand()
             .EndSubCommand();
+
+        teams.RegisterSubcommands(nav);
     }
 
     private static TextCommandResult OnDebug()

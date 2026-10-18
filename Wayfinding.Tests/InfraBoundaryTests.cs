@@ -40,20 +40,25 @@ public class InfraBoundaryTests
     [Fact]
     public void Nav_root_is_registered_once_and_owns_stats_and_debug()
     {
-        var commands = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "Commands", "NavCommands.cs"));
-        var mod = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "WayfindingModSystem.cs"));
+        var root = RepoRoot();
+        var commands = File.ReadAllText(Path.Combine(root, "Wayfinding", "Commands", "NavCommands.cs"));
+        var mod = File.ReadAllText(Path.Combine(root, "Wayfinding", "WayfindingModSystem.cs"));
+        var teams = File.ReadAllText(Path.Combine(root, "Wayfinding", "Teams", "TeamService.cs"));
         Assert.Equal(1, Count(commands, ".GetOrCreate(\"nav\")"));
+        Assert.Contains("RegisterSubcommands(", commands, StringComparison.Ordinal);
         Assert.DoesNotContain(".Create(\"nav\")", commands, StringComparison.Ordinal);
         Assert.DoesNotContain(".Create(\"nav\")", mod, StringComparison.Ordinal);
         Assert.DoesNotContain("GetOrCreate(\"nav\")", mod, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetOrCreate(\"nav\")", teams, StringComparison.Ordinal);
+        Assert.DoesNotContain(".Create(\"nav\")", teams, StringComparison.Ordinal);
         Assert.Contains("BeginSubCommand(\"stats\")", commands, StringComparison.Ordinal);
         Assert.Contains("BeginSubCommand(\"debug\")", commands, StringComparison.Ordinal);
         Assert.Contains("BeginSubCommand(\"on\")", commands, StringComparison.Ordinal);
         Assert.Contains("BeginSubCommand(\"off\")", commands, StringComparison.Ordinal);
         Assert.Contains("BeginSubCommand(\"clear\")", commands, StringComparison.Ordinal);
         Assert.Contains("BeginSubCommand(\"throw\")", commands, StringComparison.Ordinal);
-        Assert.DoesNotContain("BeginSubCommand(\"share\")", commands, StringComparison.Ordinal);
-        Assert.DoesNotContain("BeginSubCommand(\"team\")", commands, StringComparison.Ordinal);
+        Assert.Contains("BeginSubCommand(\"share\")", teams, StringComparison.Ordinal);
+        Assert.Contains("BeginSubCommand(\"team\")", teams, StringComparison.Ordinal);
         Assert.Contains("if (Gate.IsEnabled(Feature.MapLayer))", mod, StringComparison.Ordinal);
         Assert.Contains("RegisterMapLayer<DebugMapLayer>", mod, StringComparison.Ordinal);
     }

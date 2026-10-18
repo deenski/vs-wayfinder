@@ -43,7 +43,6 @@ public sealed class TeamService : ITeamService, IDisposable
 
     public void Start()
     {
-        RegisterCommands();
         _capi.Event.ChatMessage += OnChatMessage;
         _capi.Event.LevelFinalize += OnLevelFinalize;
         _capi.Event.LeaveWorld += OnLeaveWorld;
@@ -74,9 +73,8 @@ public sealed class TeamService : ITeamService, IDisposable
         return _model.GetVisibleTeammates();
     }
 
-    private void RegisterCommands()
+    public void RegisterSubcommands(IChatCommand nav)
     {
-        var nav = _capi.ChatCommands.GetOrCreate("nav");
         var parsers = _capi.ChatCommands.Parsers;
 
         nav.BeginSubCommand("share")
