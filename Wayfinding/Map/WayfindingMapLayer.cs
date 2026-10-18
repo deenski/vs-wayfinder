@@ -431,14 +431,14 @@ public sealed class WayfindingMapLayer : MapLayer
         }
 
         long now = capi.World.ElapsedMilliseconds;
+        NoteMeters(meters);
+        if (labelText == null)
+        {
+            return;
+        }
+
         if (LabelUpload.ShouldUpload(meters, uploadedMeters, now, uploadedAtMs))
         {
-            NoteMeters(meters);
-            if (labelText == null)
-            {
-                return;
-            }
-
             labelFont ??= CairoFont.WhiteDetailText();
             capi.Gui.TextTexture.GenOrUpdateTextTexture(labelText, labelFont, ref labelTexture);
             uploadedMeters = meters;
@@ -867,6 +867,11 @@ public sealed class WayfindingMapLayer : MapLayer
             return true;
         }
 
+        if (current.Kind == NavTargetKind.Player)
+        {
+            return TryPlayerTether(out x, out y, out z);
+        }
+
         if (current.Kind != NavTargetKind.Waypoint || !mod.IsEnabled(Feature.Waypoints) || waypointDrawDisabled)
         {
             return false;
@@ -882,6 +887,28 @@ public sealed class WayfindingMapLayer : MapLayer
             mod.Log.LogOnce("map-waypoint-draw", LogLevel.Error, "waypoint target drawing disabled after " + ex.GetType().Name + ": " + ex.Message);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Player targets use the tether sample. That sample already applied
+    /// <see cref="ITeammatePositionSource"/> (entity, then remote tracking),
+    /// the greyed last-known and 30 s stale rules, hysteresis, and the hide
+    /// conditions. Read on the render thread, which is the client main thread.
+    /// </summary>
+    bool TryPlayerTether(out double x, out double y, out double z)
+    {
+        x = 0;
+        y = 0;
+        z = 0;
+        if (mod.TeammateSample is not TeammateTetherSample sample || !sample.Visible || !sample.HasPosition)
+        {
+            return false;
+        }
+
+        x = sample.Position.X;
+        y = sample.Position.Y ?? 0;
+        z = sample.Position.Z;
+        return true;
     }
 
     bool TryWaypointPosition(Guid id, out double x, out double y, out double z)
@@ -934,13 +961,30 @@ public sealed class WayfindingMapLayer : MapLayer
 
     void NoteMeters(int meters)
     {
-        if (meters == labelMeters && labelText != null)
+        string text = DistanceText.Format(meters);
+        if (mod.TeammateSample is TeammateTetherSample sample)
+        {
+            string? age = TeammateAgeText.For(sample.Kind, sample.Age);
+            if (age != null)
+            {
+                text = text + " " + age;
+            }
+        }
+
+        if (meters == labelMeters && labelText == text)
         {
             return;
         }
 
+        // Age can change while the rounded meters stay put. The upload rule
+        // skips an unchanged distance, so an age-only change uploads once.
+        if (meters == labelMeters)
+        {
+            uploadedMeters = -1;
+        }
+
         labelMeters = meters;
-        labelText = DistanceText.Format(meters);
+        labelText = text;
     }
 
     bool TryMeters(out int meters)
