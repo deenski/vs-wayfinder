@@ -33,8 +33,8 @@ public readonly struct IconCandidate
 }
 
 /// <summary>
-/// Ctrl+left click on mouse-up. Right-click and drags are rejected so the map's
-/// own waypoint dialog and pan keep working.
+/// Ctrl+left click on mouse-up, or middle click when that binding is configured.
+/// Right-click and drags are rejected so the map's own waypoint dialog and pan keep working.
 /// </summary>
 public static class MapClick
 {
@@ -55,7 +55,31 @@ public static class MapClick
     /// <param name="insideMap">Whether the cursor was inside the map element.</param>
     public static bool IsNavigationClick(MapMouseButton button, bool ctrlHeld, bool dragged, bool insideMap)
     {
-        return insideMap && ctrlHeld && !dragged && button == MapMouseButton.Left;
+        return IsNavigationClick(button, ctrlHeld, dragged, insideMap, middleBinding: false);
+    }
+
+    /// <summary>
+    /// Ctrl+left click, or a middle click when <paramref name="middleBinding"/> is set.
+    /// Right-click and drags are rejected.
+    /// </summary>
+    /// <param name="button">Button that was released.</param>
+    /// <param name="ctrlHeld">Whether Ctrl was held. Ignored for the middle binding.</param>
+    /// <param name="dragged">Whether the press crossed <see cref="DragThresholdPixels"/>.</param>
+    /// <param name="insideMap">Whether the cursor was inside the map element.</param>
+    /// <param name="middleBinding">True when the configured binding is middle click instead of Ctrl+left.</param>
+    public static bool IsNavigationClick(MapMouseButton button, bool ctrlHeld, bool dragged, bool insideMap, bool middleBinding)
+    {
+        if (!insideMap || dragged)
+        {
+            return false;
+        }
+
+        if (middleBinding)
+        {
+            return button == MapMouseButton.Middle;
+        }
+
+        return ctrlHeld && button == MapMouseButton.Left;
     }
 }
 

@@ -22,6 +22,15 @@ public class MapClickTests
     }
 
     [Fact]
+    public void Middle_binding_accepts_middle_click_and_rejects_ctrl_left()
+    {
+        Assert.True(MapClick.IsNavigationClick(MapMouseButton.Middle, ctrlHeld: false, dragged: false, insideMap: true, middleBinding: true));
+        Assert.False(MapClick.IsNavigationClick(MapMouseButton.Left, ctrlHeld: true, dragged: false, insideMap: true, middleBinding: true));
+        Assert.False(MapClick.IsNavigationClick(MapMouseButton.Middle, ctrlHeld: false, dragged: true, insideMap: true, middleBinding: true));
+        Assert.False(MapClick.IsNavigationClick(MapMouseButton.Right, ctrlHeld: true, dragged: false, insideMap: true, middleBinding: true));
+    }
+
+    [Fact]
     public void Drag_starts_past_five_pixels()
     {
         Assert.False(MapClick.IsDrag(0));

@@ -138,7 +138,7 @@ public sealed class WayfindingMapLayer : MapLayer
 
         WatchTargets();
         DropStaleLabel();
-        if (!Active || !HoverLabelPolicy.Show(HasTarget(), mod.RenderGuard.LayerEnabled))
+        if (!Active || !SurfaceEnabled() || !HoverLabelPolicy.Show(HasTarget(), mod.RenderGuard.LayerEnabled))
         {
             return;
         }
@@ -160,7 +160,21 @@ public sealed class WayfindingMapLayer : MapLayer
 
     public override void OnMouseUpClient(MouseEvent args, GuiElementMap mapElem)
     {
-        if (!MapInputPolicy.AllowsInput(inputDisabled) || capi == null || args.Handled || args.Button != EnumMouseButton.Left || !CtrlDown)
+        if (!MapInputPolicy.AllowsInput(inputDisabled) || capi == null || args.Handled)
+        {
+            return;
+        }
+
+        bool middle = mod.Config.clickBinding == WayfindingClientConfig.ClickMiddle;
+        MapMouseButton button = MouseButton(args.Button);
+        if (middle)
+        {
+            if (button != MapMouseButton.Middle)
+            {
+                return;
+            }
+        }
+        else if (button != MapMouseButton.Left || !CtrlDown)
         {
             return;
         }
@@ -170,7 +184,7 @@ public sealed class WayfindingMapLayer : MapLayer
         dragPixels = 0;
         dragOpen = false;
         if (!Active || clickDisabled || !mod.IsEnabled(Feature.MapViewport)
-            || !MapClick.IsNavigationClick(MapMouseButton.Left, ctrlHeld: true, dragged, inside))
+            || !MapClick.IsNavigationClick(button, CtrlDown, dragged, inside, middle))
         {
             return;
         }
@@ -257,7 +271,7 @@ public sealed class WayfindingMapLayer : MapLayer
         }
 
         GuiElementMap? map = drawing;
-        if (map == null || capi?.World.Player?.Entity == null || !TryResolve(out double targetX, out double targetY, out double targetZ))
+        if (map == null || capi?.World.Player?.Entity == null || !SurfaceEnabled() || !TryResolve(out double targetX, out double targetY, out double targetZ))
         {
             return;
         }
@@ -354,7 +368,7 @@ public sealed class WayfindingMapLayer : MapLayer
             return;
         }
 
-        SegmentStyle style = SegmentStyles.For(kind);
+        SegmentStyle style = SegmentStyles.For(kind, mod.Config);
         float thickness = (float)GuiElement.scaled(style.Thickness);
         if (goal && minimap && MapEdge.TryEdgePoint(x2, y2, view.InnerWidth, view.InnerHeight, MapEdge.ArrowBorder, out float edgeX, out float edgeY, out float angle))
         {
@@ -473,6 +487,40 @@ public sealed class WayfindingMapLayer : MapLayer
         matrix.Scale(segment.HalfLength, segment.HalfThickness, 0f);
         prog.UniformMatrix("modelViewMatrix", matrix.Values);
         capi.Render.RenderMesh(quad);
+    }
+
+    internal bool TryHudLine(out string line, out int meters)
+    {
+        line = "";
+        meters = 0;
+        if (!TryMeters(out meters))
+        {
+            return false;
+        }
+
+        NavTarget current = mod.NavTargets?.Current ?? NavTarget.None;
+        line = HudLine.Format(
+            HudLine.Label(current.Kind, current.Name),
+            DistanceText.Format(meters),
+            HudLine.ModeBadge,
+            HudLine.Status(current.Kind));
+        return true;
+    }
+
+    bool SurfaceEnabled()
+    {
+        return IsMinimap() ? mod.Config.showOnMinimap : mod.Config.showOnWorldMap;
+    }
+
+    static MapMouseButton MouseButton(EnumMouseButton button)
+    {
+        return button switch
+        {
+            EnumMouseButton.Left => MapMouseButton.Left,
+            EnumMouseButton.Middle => MapMouseButton.Middle,
+            EnumMouseButton.Right => MapMouseButton.Right,
+            _ => MapMouseButton.Other,
+        };
     }
 
     bool IsMinimap()
@@ -610,7 +658,7 @@ public sealed class WayfindingMapLayer : MapLayer
             return;
         }
 
-        float half = RuntimeEnv.GUIScale * 8f;
+        float half = RuntimeEnv.GUIScale * mod.Config.waypointClickRadius;
         for (int i = 0; i < waypointLayer.ownWaypoints.Count; i++)
         {
             Waypoint? wp = waypointLayer.ownWaypoints[i];
@@ -668,7 +716,7 @@ public sealed class WayfindingMapLayer : MapLayer
             return;
         }
 
-        float half = (float)GuiElement.scaled(5);
+        float half = (float)GuiElement.scaled(mod.Config.playerClickRadius);
         foreach (PacketPlayerPosition packet in TrackedPlayers(capi))
         {
             if (!TrackedPlayerPosition.TryHorizontal(packet, out double px, out double pz))

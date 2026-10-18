@@ -1,4 +1,5 @@
 using Vintagestory.API.MathTools;
+using Wayfinding.Infra;
 using Wayfinding.Pathing.Search;
 
 namespace Wayfinding;
@@ -25,21 +26,28 @@ public readonly struct SegmentStyle
 
 public static class SegmentStyles
 {
-    public static readonly SegmentStyle Known = new(new Vec4f(0.27f, 0.51f, 0.71f, 0.95f), 2.5, false);
-
-    public static readonly SegmentStyle Unknown = new(new Vec4f(0.75f, 0.75f, 0.75f, 0.55f), 2.0, true);
-
-    public static readonly SegmentStyle Build = new(new Vec4f(1f, 0.62f, 0.12f, 0.95f), 4.5, false);
-
-    public static SegmentStyle For(SegmentKind kind)
+    public static SegmentStyle For(SegmentKind kind, WayfindingClientConfig config)
     {
+        var known = new SegmentStyle(ColorOf(config.knownColor), config.knownThickness, false);
+        var unknown = new SegmentStyle(ColorOf(config.unknownColor), config.unknownThickness, true);
+        var build = new SegmentStyle(ColorOf(config.buildColor), config.buildThickness, false);
         return kind switch
         {
-            SegmentKind.Walk => Known,
-            SegmentKind.Swim => Known,
-            SegmentKind.Build => Build,
-            SegmentKind.Unknown => Unknown,
-            _ => Unknown,
+            SegmentKind.Walk => known,
+            SegmentKind.Swim => known,
+            SegmentKind.Build => build,
+            SegmentKind.Unknown => unknown,
+            _ => unknown,
         };
+    }
+
+    private static Vec4f ColorOf(string text)
+    {
+        if (!WayfindingConfig.TryColor(text, out var r, out var g, out var b, out var a))
+        {
+            WayfindingConfig.TryColor(WayfindingConfig.DefaultUnknownColor, out r, out g, out b, out a);
+        }
+
+        return new Vec4f(r, g, b, a);
     }
 }
