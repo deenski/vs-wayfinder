@@ -39,7 +39,7 @@ public partial class WayfindingModSystem
         teammateTether = new TeammateTether(
             new ClientTeammatePositionSource(api, this),
             teammates,
-            new ClientTeammateTetherInputs(api, teammates),
+            ClientTeammateReads.Create(api, teammates),
             new ClientElapsedClock(api));
         teammateTetherListenerId = api.Event.RegisterGameTickListener(
             OnTeammateTetherTick,

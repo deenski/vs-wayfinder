@@ -84,40 +84,49 @@ internal sealed class ClientTeammatePositionSource : ITeammatePositionSource
 }
 
 /// <summary>
-/// Hide inputs read from the client. Share-off is
+/// Game reads for <see cref="ClientTeammateTetherInputs"/>. Share-off is
 /// <see cref="ITeammateVisibility.IsVisibleTeammate"/>, which TeamService
-/// returns false for. Dimension is confirmed only when both entities are
-/// loaded and their <c>EntityPos.Dimension</c> values match. A tracking
+/// returns false for. Dimension is the two <c>EntityPos.Dimension</c> values.
+/// A missing position is a missing dimension, not a mismatch. A tracking
 /// packet has no dimension.
 /// </summary>
-internal sealed class ClientTeammateTetherInputs : ITeammateTetherInputs
+internal static class ClientTeammateReads
 {
-    private readonly ICoreClientAPI api;
-    private readonly ITeammateVisibility teammates;
-
-    public ClientTeammateTetherInputs(ICoreClientAPI api, ITeammateVisibility teammates)
+    public static ClientTeammateTetherInputs Create(ICoreClientAPI api, ITeammateVisibility teammates)
     {
-        this.api = api ?? throw new ArgumentNullException(nameof(api));
-        this.teammates = teammates ?? throw new ArgumentNullException(nameof(teammates));
-    }
-
-    public bool? MapHideOtherPlayers
-    {
-        get
+        if (api == null)
         {
-            // The 1.22.7 server reads this world-config key with GetBool, whose
-            // default is false. A missing key is off. A missing config is unknown.
-            var config = api.World?.Config;
-            if (config == null)
-            {
-                return null;
-            }
-
-            return config.GetBool("mapHideOtherPlayers");
+            throw new ArgumentNullException(nameof(api));
         }
+
+        if (teammates == null)
+        {
+            throw new ArgumentNullException(nameof(teammates));
+        }
+
+        return new ClientTeammateTetherInputs(
+            () => MapHide(api),
+            name => Spectator(api, name),
+            () => LocalDimension(api),
+            name => TargetDimension(api, name),
+            name => Sharing(teammates, name),
+            () => LocalPosition(api));
     }
 
-    public bool? IsSpectator(string? playerNameOrUid)
+    private static bool? MapHide(ICoreClientAPI api)
+    {
+        // The 1.22.7 server reads this world-config key with GetBool, whose
+        // default is false. A missing key is off. A missing config is unknown.
+        var config = api.World?.Config;
+        if (config == null)
+        {
+            return null;
+        }
+
+        return config.GetBool("mapHideOtherPlayers");
+    }
+
+    private static bool? Spectator(ICoreClientAPI api, string? playerNameOrUid)
     {
         if (!ClientPlayers.TryFind(api, playerNameOrUid, out var player) || player.WorldData == null)
         {
@@ -127,24 +136,34 @@ internal sealed class ClientTeammateTetherInputs : ITeammateTetherInputs
         return player.WorldData.CurrentGameMode == EnumGameMode.Spectator;
     }
 
-    public bool? IsDimensionConfirmed(string? playerNameOrUid)
+    private static int? LocalDimension(ICoreClientAPI api)
     {
-        var local = api.World?.Player?.Entity?.Pos;
-        if (local == null || !ClientPlayers.TryFind(api, playerNameOrUid, out var player))
+        var pos = api.World?.Player?.Entity?.Pos;
+        if (pos == null)
         {
             return null;
         }
 
-        var remote = player.Entity?.Pos;
-        if (remote == null)
-        {
-            return null;
-        }
-
-        return local.Dimension == remote.Dimension;
+        return pos.Dimension;
     }
 
-    public bool? IsSharing(string? playerNameOrUid)
+    private static int? TargetDimension(ICoreClientAPI api, string? playerNameOrUid)
+    {
+        if (!ClientPlayers.TryFind(api, playerNameOrUid, out var player))
+        {
+            return null;
+        }
+
+        var pos = player.Entity?.Pos;
+        if (pos == null)
+        {
+            return null;
+        }
+
+        return pos.Dimension;
+    }
+
+    private static bool? Sharing(ITeammateVisibility teammates, string? playerNameOrUid)
     {
         // TeamService folds share-off into IsVisibleTeammate and fails closed
         // on an unknown name. A throw is treated as unknown.
@@ -158,17 +177,15 @@ internal sealed class ClientTeammateTetherInputs : ITeammateTetherInputs
         }
     }
 
-    public bool TryGetLocalPosition(out TeammatePoint position)
+    private static TeammatePoint? LocalPosition(ICoreClientAPI api)
     {
-        position = default;
         var pos = api.World?.Player?.Entity?.Pos;
         if (pos == null)
         {
-            return false;
+            return null;
         }
 
-        position = new TeammatePoint(pos.X, pos.Z, pos.Y);
-        return true;
+        return new TeammatePoint(pos.X, pos.Z, pos.Y);
     }
 }
 

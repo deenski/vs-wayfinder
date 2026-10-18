@@ -220,6 +220,52 @@ public class TeammateTetherTests
     }
 
     [Fact]
+    public void Entity_leaving_sim_range_keeps_the_marker_and_then_goes_stale()
+    {
+        var adapter = new ClientAdapter();
+        Assert.Equal(true, adapter.Inputs.IsDimensionConfirmed("Maili"));
+        var live = adapter.Tick();
+        Assert.True(live.Visible);
+        Assert.Equal(TeammateFixKind.Live, live.Kind);
+        Assert.Equal(20, live.Position.X);
+
+        adapter.TargetDimension = null;
+        adapter.Positions.Entity = null;
+        adapter.Positions.Tracked = new TeammatePoint(80, 0);
+        adapter.Clock.Milliseconds = 1_000;
+        Assert.Null(adapter.Inputs.IsDimensionConfirmed("Maili"));
+        var lastKnown = adapter.Tick();
+        Assert.True(lastKnown.Visible);
+        Assert.Equal(TeammateFixKind.LastKnown, lastKnown.Kind);
+        Assert.Equal(20, lastKnown.Position.X);
+        Assert.Equal(TimeSpan.FromMilliseconds(1_000), lastKnown.Age);
+
+        adapter.Clock.Milliseconds = TeammateTether.StaleAfterMilliseconds;
+        var stale = adapter.Tick();
+        Assert.True(stale.Visible);
+        Assert.Equal(TeammateFixKind.Stale, stale.Kind);
+        Assert.Equal(20, stale.Position.X);
+        Assert.Equal(TimeSpan.FromMilliseconds(TeammateTether.StaleAfterMilliseconds), stale.Age);
+    }
+
+    [Fact]
+    public void A_positive_dimension_mismatch_forgets_the_fix()
+    {
+        var adapter = new ClientAdapter();
+        Assert.Equal(TeammateFixKind.Live, adapter.Tick().Kind);
+
+        adapter.TargetDimension = adapter.LocalDimension + 1;
+        Assert.Equal(false, adapter.Inputs.IsDimensionConfirmed("Maili"));
+        AssertHidden(adapter.Tick());
+
+        adapter.TargetDimension = adapter.LocalDimension;
+        adapter.Positions.Entity = null;
+        var forgotten = adapter.Tick();
+        Assert.Equal(TeammateFixKind.None, forgotten.Kind);
+        Assert.False(forgotten.HasPosition);
+    }
+
+    [Fact]
     public void A_player_who_is_not_a_visible_teammate_shows_nothing()
     {
         var harness = new TetherHarness();
@@ -400,6 +446,42 @@ public class TeammateTetherTests
         }
 
         throw new InvalidOperationException("Could not find Wayfinding.sln above the test output.");
+    }
+
+    private sealed class ClientAdapter
+    {
+        public ClientAdapter()
+        {
+            var teammates = new NamedTeammates();
+            teammates.Allow("Maili");
+            Inputs = new ClientTeammateTetherInputs(
+                () => false,
+                _ => false,
+                () => LocalDimension,
+                _ => TargetDimension,
+                _ => true,
+                () => new TeammatePoint(0, 0));
+            Positions.Entity = new TeammatePoint(20, 0, 64);
+            Tether = new TeammateTether(Positions, teammates, Inputs, Clock);
+        }
+
+        public int? LocalDimension { get; set; } = 0;
+
+        public int? TargetDimension { get; set; } = 0;
+
+        public ClientTeammateTetherInputs Inputs { get; }
+
+        public FakePositions Positions { get; } = new();
+
+        public ManualClock Clock { get; } = new();
+
+        public TeammateTether Tether { get; }
+
+        public TeammateTetherSample Tick()
+        {
+            Tether.Tick("Maili");
+            return Tether.Current;
+        }
     }
 
     private sealed class TetherHarness

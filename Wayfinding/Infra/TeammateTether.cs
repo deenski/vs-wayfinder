@@ -81,7 +81,8 @@ public interface ITeammateTetherClock
 }
 
 /// <summary>
-/// Hide inputs. A null answer is fail-closed: the tether draws nothing.
+/// Hide inputs. A null map-hide, spectator, or share answer fails closed.
+/// A null dimension is unknown: it does not accept a new point, and it keeps a fix already accepted.
 /// </summary>
 public interface ITeammateTetherInputs
 {
@@ -91,7 +92,10 @@ public interface ITeammateTetherInputs
     /// <summary>True when the target is in spectator. Null when the mode cannot be read.</summary>
     bool? IsSpectator(string? playerNameOrUid);
 
-    /// <summary>True only when the target is confirmed in this dimension. Null when it cannot be confirmed.</summary>
+    /// <summary>
+    /// True when both dimensions are known and equal. False on a mismatch.
+    /// Null when either dimension is missing.
+    /// </summary>
     bool? IsDimensionConfirmed(string? playerNameOrUid);
 
     /// <summary>True only when the target is sharing. Null when share state is unknown.</summary>
@@ -167,16 +171,27 @@ public sealed class TeammateTether
             return;
         }
 
-        var live = false;
-        if (positions.TryGetEntityPosition(key, out var entity))
+        var dimension = inputs.IsDimensionConfirmed(key);
+        if (dimension == false)
         {
-            NoteLive(entity);
-            live = true;
+            ForgetFix();
+            Current = TeammateTetherSample.Hidden;
+            return;
         }
-        else if (positions.TryGetTrackedPosition(key, out var tracked))
+
+        var live = false;
+        if (dimension == true)
         {
-            NoteLive(tracked);
-            live = true;
+            if (positions.TryGetEntityPosition(key, out var entity))
+            {
+                NoteLive(entity);
+                live = true;
+            }
+            else if (positions.TryGetTrackedPosition(key, out var tracked))
+            {
+                NoteLive(tracked);
+                live = true;
+            }
         }
 
         if (lastPoint is not TeammatePoint point)
@@ -208,11 +223,6 @@ public sealed class TeammateTether
         }
 
         if (inputs.IsSpectator(playerNameOrUid) != false)
-        {
-            return true;
-        }
-
-        if (inputs.IsDimensionConfirmed(playerNameOrUid) != true)
         {
             return true;
         }
