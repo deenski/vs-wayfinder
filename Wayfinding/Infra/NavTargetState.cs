@@ -16,15 +16,16 @@ public enum NavTargetKind
 /// </summary>
 public sealed class NavTarget
 {
-    private NavTarget(NavTargetKind kind, Guid waypointId, string? name, AbsoluteCoord? coordinate)
+    private NavTarget(NavTargetKind kind, Guid waypointId, string? name, AbsoluteCoord? coordinate, int? dimension)
     {
         Kind = kind;
         WaypointId = waypointId;
         Name = name;
         Coordinate = coordinate;
+        Dimension = dimension;
     }
 
-    public static NavTarget None { get; } = new(NavTargetKind.None, Guid.Empty, null, null);
+    public static NavTarget None { get; } = new(NavTargetKind.None, Guid.Empty, null, null, null);
 
     public NavTargetKind Kind { get; }
 
@@ -34,19 +35,26 @@ public sealed class NavTarget
 
     public AbsoluteCoord? Coordinate { get; }
 
+    /// <summary>
+    /// Dimension stamped when a coordinate target is set. Null for every other
+    /// kind, and for a coordinate saved before dimension stamping existed.
+    /// Waypoint dimension is decoded from the live waypoint Y, not stored here.
+    /// </summary>
+    public int? Dimension { get; }
+
     public static NavTarget Waypoint(Guid id, string? name)
     {
-        return new NavTarget(NavTargetKind.Waypoint, id, name ?? "", null);
+        return new NavTarget(NavTargetKind.Waypoint, id, name ?? "", null, null);
     }
 
     public static NavTarget Player(string name)
     {
-        return new NavTarget(NavTargetKind.Player, Guid.Empty, name, null);
+        return new NavTarget(NavTargetKind.Player, Guid.Empty, name, null, null);
     }
 
-    public static NavTarget At(AbsoluteCoord coordinate)
+    public static NavTarget At(AbsoluteCoord coordinate, int? dimension = null)
     {
-        return new NavTarget(NavTargetKind.Coordinate, Guid.Empty, null, coordinate);
+        return new NavTarget(NavTargetKind.Coordinate, Guid.Empty, null, coordinate, dimension);
     }
 }
 
@@ -130,6 +138,14 @@ public sealed class NavTargetRecord
 
     public int Y;
 
+    /// <summary>
+    /// False on records written before coordinate dimension stamping. A missing
+    /// field loads as false, which is not dimension 0.
+    /// </summary>
+    public bool HasDimension;
+
+    public int Dimension;
+
     public static NavTargetRecord From(string worldId, NavTarget target)
     {
         var record = new NavTargetRecord { WorldId = worldId };
@@ -152,6 +168,8 @@ public sealed class NavTargetRecord
                 record.Z = coord.Z;
                 record.HasY = coord.Y.HasValue;
                 record.Y = coord.Y ?? 0;
+                record.HasDimension = target.Dimension.HasValue;
+                record.Dimension = target.Dimension ?? 0;
                 return record;
             default:
                 throw new ArgumentOutOfRangeException(nameof(target), target.Kind, "Cannot store an empty target.");
@@ -182,7 +200,7 @@ public sealed class NavTargetRecord
 
         if (string.Equals(Kind, "coordinate", StringComparison.Ordinal))
         {
-            return NavTarget.At(new AbsoluteCoord(X, HasY ? Y : null, Z));
+            return NavTarget.At(new AbsoluteCoord(X, HasY ? Y : null, Z), HasDimension ? Dimension : null);
         }
 
         return NavTarget.None;
@@ -201,6 +219,8 @@ public sealed class NavTargetRecord
             Z = Z,
             HasY = HasY,
             Y = Y,
+            HasDimension = HasDimension,
+            Dimension = Dimension,
         };
     }
 }

@@ -1,0 +1,57 @@
+using System;
+
+namespace Wayfinding.Infra;
+
+/// <summary>
+/// How the active target's dimension compares with the local player.
+/// TODO(KAN-19): <see cref="Different"/> shows the "different dimension" badge and draws no line.
+/// <see cref="Unconfirmed"/> draws nothing. Only <see cref="Same"/> may draw a route.
+/// </summary>
+public enum DimensionRelation
+{
+    Same = 0,
+    Different = 1,
+    Unconfirmed = 2,
+}
+
+public interface IDimensionDetector
+{
+    /// <summary>
+    /// <paramref name="targetDimension"/> is the stamped coordinate dimension,
+    /// or the dimension decoded from a waypoint's position Y. Null when that
+    /// dimension is not known yet.
+    /// </summary>
+    DimensionRelation Evaluate(int? playerDimension, NavTarget target, int? targetDimension);
+}
+
+/// <summary>
+/// Dimension relation for our own navigation target. Player targets stay
+/// unconfirmed until teammate positions exist.
+/// </summary>
+public sealed class OwnTargetDimensionDetector : IDimensionDetector
+{
+    public DimensionRelation Evaluate(int? playerDimension, NavTarget target, int? targetDimension)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (target.Kind == NavTargetKind.None || playerDimension is null)
+        {
+            return DimensionRelation.Unconfirmed;
+        }
+
+        if (target.Kind == NavTargetKind.Player)
+        {
+            // TODO(KAN-22): teammate dimension comes from ITeammatePositionSource.
+            // Until that source exists, a player target stays Unconfirmed so nothing is drawn.
+            return DimensionRelation.Unconfirmed;
+        }
+
+        if (targetDimension is null)
+        {
+            return DimensionRelation.Unconfirmed;
+        }
+
+        return targetDimension.Value == playerDimension.Value
+            ? DimensionRelation.Same
+            : DimensionRelation.Different;
+    }
+}
