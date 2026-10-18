@@ -38,8 +38,12 @@
       <_GameReference Include="@(ProjectReference)"
                       Condition="$([System.Text.RegularExpressions.Regex]::IsMatch($([System.IO.Path]::GetFileNameWithoutExtension('%(ProjectReference.Identity)')), '$(_NameRegex)'))" />
     </ItemGroup>
-    <Error Condition="'@(_GameReference)' != ''"
-           Text="Wayfinding.Pathing must not reference game assemblies: @(_GameReference)." />
+    <!-- One reference can match the name rule and the hint rule. Report it once. -->
+    <ItemGroup>
+      <_UniqueGameReference Include="@(_GameReference->Distinct())" />
+    </ItemGroup>
+    <Error Condition="'@(_UniqueGameReference)' != ''"
+           Text="Wayfinding.Pathing must not reference game assemblies: @(_UniqueGameReference)." />
   </Target>
 
 </Project>

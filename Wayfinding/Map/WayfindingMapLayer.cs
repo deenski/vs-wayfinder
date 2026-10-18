@@ -1,7 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Text;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
@@ -11,6 +11,7 @@ using Vintagestory.GameContent;
 using Wayfinding.Infra;
 using Wayfinding.Pathing.Grid;
 using Wayfinding.Pathing.Map;
+using Wayfinding.Pathing.Search;
 
 namespace Wayfinding;
 
@@ -50,10 +51,13 @@ public sealed class WayfindingMapLayer : MapLayer
     bool armThrow;
     bool clickDisabled;
     bool waypointHitsDisabled;
+    bool playerHitsDisabled;
     bool minimapReaderLogged;
     float dragPixels;
     bool dragOpen;
-    RouteSegment straight;
+    FineRoute? straight;
+    GridPos straightFrom;
+    GridPos straightTo;
     GuiElementMap? drawing;
 
     public override string Title => "Wayfinding";
@@ -146,25 +150,57 @@ public sealed class WayfindingMapLayer : MapLayer
         }
 
         bool inside = ViewPoint(args, mapElem, out float mouseX, out float mouseY);
-        bool dragged = dragPixels > 5f;
+        bool dragged = MapClick.IsDrag(dragPixels);
         dragPixels = 0;
         dragOpen = false;
-        if (!Active || !inside || dragged || clickDisabled || !mod.IsEnabled(Feature.MapViewport))
+        if (!Active || clickDisabled || !mod.IsEnabled(Feature.MapViewport)
+            || !MapClick.IsNavigationClick(MapMouseButton.Left, ctrlHeld: true, dragged, inside))
         {
             return;
         }
 
-        try
+        float best = float.MaxValue;
+        Waypoint? waypoint = null;
+        PacketPlayerPosition? player = null;
+        if (mod.IsEnabled(Feature.Waypoints) && !waypointHitsDisabled)
         {
-            if (mod.IsEnabled(Feature.Waypoints) && !waypointHitsDisabled && TryWaypoint(mapElem, mouseX, mouseY))
+            try
             {
-                return;
+                ConsiderWaypoints(mapElem, mouseX, mouseY, ref best, ref waypoint);
+            }
+            catch (Exception ex)
+            {
+                waypointHitsDisabled = true;
+                mod.Log.LogOnce("map-waypoint-hit", LogLevel.Error, "waypoint hit-testing disabled after an input error: " + ex.Message);
             }
         }
-        catch (Exception ex)
+
+        if (mod.IsEnabled(Feature.RemoteTracking) && !playerHitsDisabled)
         {
-            waypointHitsDisabled = true;
-            mod.Log.LogOnce("map-waypoint-hit", LogLevel.Error, "waypoint hit-testing disabled after an input error: " + ex.Message);
+            try
+            {
+                ConsiderPlayers(mapElem, mouseX, mouseY, ref best, ref waypoint, ref player);
+            }
+            catch (Exception ex)
+            {
+                playerHitsDisabled = true;
+                mod.Log.LogOnce("map-player-hit", LogLevel.Error, "player hit-testing disabled after an input error: " + ex.Message);
+            }
+        }
+
+        if (waypoint?.Position != null)
+        {
+            mod.Target.Set(waypoint.Position.X, waypoint.Position.Y, waypoint.Position.Z, NavTargetKind.Waypoint, waypoint.Guid);
+            Say("waypoint '" + (waypoint.Title ?? waypoint.Guid) + "'");
+            return;
+        }
+
+        if (player != null && TrackedPlayerPosition.TryHorizontal(player, out double playerX, out double playerZ))
+        {
+            double playerY = player.AssociatedPlayer?.Entity != null ? player.AssociatedPlayer.Entity.Pos.Y : 0;
+            mod.Target.Set(playerX, playerY, playerZ, NavTargetKind.Coordinate, null);
+            Say("player " + player.PlayerUid);
+            return;
         }
 
         try
@@ -208,14 +244,34 @@ public sealed class WayfindingMapLayer : MapLayer
         }
 
         var pos = capi.World.Player.Entity.Pos;
-        straight = RouteSegment.StraightUnknown(
-            RouteSegment.CellOf(pos.X, pos.Y, pos.Z),
-            RouteSegment.CellOf(mod.Target.X, mod.Target.Y, mod.Target.Z));
+        GridPos from = CellOf(pos.X, pos.Y, pos.Z);
+        GridPos to = CellOf(mod.Target.X, mod.Target.Y, mod.Target.Z);
+        FineRoute route = StraightUnknown(from, to);
         UpdateLabel(pos.X, pos.Z, mod.Target.X, mod.Target.Z);
-        Draw(map, MemoryMarshal.CreateReadOnlySpan(ref straight, 1));
+        Draw(map, route);
     }
 
-    void Draw(GuiElementMap map, ReadOnlySpan<RouteSegment> segments)
+    FineRoute StraightUnknown(GridPos from, GridPos to)
+    {
+        if (straight != null && straightFrom == from && straightTo == to)
+        {
+            return straight;
+        }
+
+        straightFrom = from;
+        straightTo = to;
+        straight = new FineRoute(
+            FineSearchStatus.UnknownBoundary,
+            double.PositiveInfinity,
+            [],
+            [],
+            new UnknownSegment(from, to),
+            0,
+            0);
+        return straight;
+    }
+
+    void Draw(GuiElementMap map, FineRoute route)
     {
         if (capi == null || !TryView(map, out MapViewRect view))
         {
@@ -237,28 +293,17 @@ public sealed class WayfindingMapLayer : MapLayer
             SetFlatColor(prog);
             prog.UniformMatrix("projectionMatrix", savedProjection);
 
-            for (int i = 0; i < segments.Length; i++)
+            IReadOnlyList<RouteStep> steps = route.Steps;
+            bool tail = route.Unknown != null;
+            for (int i = 1; i < steps.Count; i++)
             {
-                RouteSegment segment = segments[i];
-                if (!MapProjection.TryWorldToView(view, segment.From.X, segment.From.Z, out float x1, out float y1)
-                    || !MapProjection.TryWorldToView(view, segment.To.X, segment.To.Z, out float x2, out float y2))
-                {
-                    continue;
-                }
+                bool goal = !tail && i == steps.Count - 1;
+                DrawWorldSegment(map, prog, view, originX, originY, minimap, steps[i - 1].Pos, steps[i].Pos, steps[i].Segment, goal);
+            }
 
-                SegmentStyle style = SegmentStyles.For(segment.Kind);
-                float thickness = (float)GuiElement.scaled(style.Thickness);
-                if (minimap && MapEdge.TryEdgePoint(x2, y2, view.InnerWidth, view.InnerHeight, MapEdge.ArrowBorder, out float edgeX, out float edgeY, out float angle))
-                {
-                    DrawClipped(prog, x1, y1, edgeX, edgeY, originX, originY, view, style, thickness);
-                    DrawArrow(prog, edgeX + originX, edgeY + originY, angle);
-                    DrawLabel(map, edgeX, edgeY, view);
-                    prog.Uniform("noTexture", 1f);
-                    prog.UniformMatrix("projectionMatrix", savedProjection);
-                    continue;
-                }
-
-                DrawClipped(prog, x1, y1, x2, y2, originX, originY, view, style, thickness);
+            if (route.Unknown is UnknownSegment unknown)
+            {
+                DrawWorldSegment(map, prog, view, originX, originY, minimap, unknown.From, unknown.To, SegmentKind.Unknown, goal: true);
             }
         }
         finally
@@ -270,6 +315,39 @@ public sealed class WayfindingMapLayer : MapLayer
 
             capi.Render.PopScissor();
         }
+    }
+
+    void DrawWorldSegment(
+        GuiElementMap map,
+        IShaderProgram prog,
+        MapViewRect view,
+        float originX,
+        float originY,
+        bool minimap,
+        GridPos from,
+        GridPos to,
+        SegmentKind kind,
+        bool goal)
+    {
+        if (!MapProjection.TryWorldToView(view, from.X, from.Z, out float x1, out float y1)
+            || !MapProjection.TryWorldToView(view, to.X, to.Z, out float x2, out float y2))
+        {
+            return;
+        }
+
+        SegmentStyle style = SegmentStyles.For(kind);
+        float thickness = (float)GuiElement.scaled(style.Thickness);
+        if (goal && minimap && MapEdge.TryEdgePoint(x2, y2, view.InnerWidth, view.InnerHeight, MapEdge.ArrowBorder, out float edgeX, out float edgeY, out float angle))
+        {
+            DrawClipped(prog, x1, y1, edgeX, edgeY, originX, originY, view, style, thickness);
+            DrawArrow(prog, edgeX + originX, edgeY + originY, angle);
+            DrawLabel(map, edgeX, edgeY, view);
+            prog.Uniform("noTexture", 1f);
+            prog.UniformMatrix("projectionMatrix", savedProjection);
+            return;
+        }
+
+        DrawClipped(prog, x1, y1, x2, y2, originX, originY, view, style, thickness);
     }
 
     void DrawClipped(
@@ -419,11 +497,11 @@ public sealed class WayfindingMapLayer : MapLayer
         Array.Copy(source, destination, 16);
     }
 
-    bool TryWaypoint(GuiElementMap map, float mouseX, float mouseY)
+    void ConsiderWaypoints(GuiElementMap map, float mouseX, float mouseY, ref float best, ref Waypoint? hit)
     {
         if (!TryView(map, out MapViewRect view))
         {
-            return false;
+            return;
         }
 
         WaypointMapLayer? waypointLayer = null;
@@ -438,12 +516,10 @@ public sealed class WayfindingMapLayer : MapLayer
 
         if (waypointLayer is not { Active: true })
         {
-            return false;
+            return;
         }
 
         float half = RuntimeEnv.GUIScale * 8f;
-        float best = float.MaxValue;
-        Waypoint? hit = null;
         for (int i = 0; i < waypointLayer.ownWaypoints.Count; i++)
         {
             Waypoint? wp = waypointLayer.ownWaypoints[i];
@@ -464,31 +540,93 @@ public sealed class WayfindingMapLayer : MapLayer
                 y = Math.Clamp(y, MapEdge.ArrowBorder, (float)view.InnerHeight - MapEdge.ArrowBorder);
             }
 
-            if (!MapHit.InsideSquare(x, y, mouseX, mouseY, half))
+            if (!Closer(x, y, half, mouseX, mouseY, ref best))
             {
                 continue;
             }
 
-            float dx = x - mouseX;
-            float dy = y - mouseY;
-            float distance = dx * dx + dy * dy;
-            if (distance >= best)
-            {
-                continue;
-            }
-
-            best = distance;
             hit = wp;
         }
+    }
 
-        if (hit?.Position == null)
+    void ConsiderPlayers(
+        GuiElementMap map,
+        float mouseX,
+        float mouseY,
+        ref float best,
+        ref Waypoint? waypoint,
+        ref PacketPlayerPosition? player)
+    {
+        if (capi == null || !TryView(map, out MapViewRect view))
+        {
+            return;
+        }
+
+        PlayerMapLayer? playerLayer = null;
+        for (int i = 0; i < map.mapLayers.Count; i++)
+        {
+            if (map.mapLayers[i] is PlayerMapLayer found)
+            {
+                playerLayer = found;
+                break;
+            }
+        }
+
+        if (playerLayer is not { Active: true })
+        {
+            return;
+        }
+
+        float half = (float)GuiElement.scaled(5);
+        foreach (PacketPlayerPosition packet in TrackedPlayers(capi))
+        {
+            if (!TrackedPlayerPosition.TryHorizontal(packet, out double px, out double pz))
+            {
+                continue;
+            }
+
+            if (!MapProjection.TryWorldToView(view, px, pz, out float x, out float y))
+            {
+                continue;
+            }
+
+            if (!Closer(x, y, half, mouseX, mouseY, ref best))
+            {
+                continue;
+            }
+
+            player = packet;
+            waypoint = null;
+        }
+    }
+
+    static IEnumerable<PacketPlayerPosition> TrackedPlayers(ICoreClientAPI capi)
+    {
+        return capi.ModLoader.GetModSystem<SystemRemotePlayerTracking>().GetAllTrackedPlayerPositions();
+    }
+
+    static bool Closer(float iconX, float iconY, float half, float mouseX, float mouseY, ref float best)
+    {
+        if (!MapHit.InsideSquare(iconX, iconY, mouseX, mouseY, half))
         {
             return false;
         }
 
-        mod.Target.Set(hit.Position.X, hit.Position.Y, hit.Position.Z, NavTargetKind.Waypoint, hit.Guid);
-        Say("waypoint '" + (hit.Title ?? hit.Guid) + "'");
+        float dx = iconX - mouseX;
+        float dy = iconY - mouseY;
+        float distance = dx * dx + dy * dy;
+        if (distance >= best)
+        {
+            return false;
+        }
+
+        best = distance;
         return true;
+    }
+
+    static GridPos CellOf(double x, double y, double z)
+    {
+        return new GridPos((int)Math.Floor(x), (int)Math.Floor(y), (int)Math.Floor(z));
     }
 
     void TryEmpty(GuiElementMap map, float mouseX, float mouseY)

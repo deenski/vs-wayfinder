@@ -1,10 +1,11 @@
 using Vintagestory.API.MathTools;
+using Wayfinding.Pathing.Search;
 
 namespace Wayfinding;
 
 /// <summary>
-/// Colors and stroke for each <see cref="RouteSegmentKind"/>. The draw loop
-/// indexes this table; it does not special-case the straight line.
+/// Stroke for each <see cref="SegmentKind"/>. Walk and swim share Known.
+/// The unknown tail, including a straight line that may cross solid blocks, uses Unknown.
 /// </summary>
 public readonly struct SegmentStyle
 {
@@ -30,13 +31,13 @@ public static class SegmentStyles
 
     public static readonly SegmentStyle Build = new(new Vec4f(1f, 0.62f, 0.12f, 0.95f), 4.5, false);
 
-    public static SegmentStyle For(RouteSegmentKind kind)
+    public static SegmentStyle For(SegmentKind kind)
     {
         return kind switch
         {
-            RouteSegmentKind.Known => Known,
-            RouteSegmentKind.Build => Build,
-            _ => Unknown,
+            SegmentKind.Build => Build,
+            SegmentKind.Unknown => Unknown,
+            _ => Known,
         };
     }
 }

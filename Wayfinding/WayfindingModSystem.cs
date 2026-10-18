@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Server;
@@ -55,7 +55,7 @@ public class WayfindingModSystem : ModSystem
         capi = api;
         Log.Verbosity = ClientConfigStore.Load(api, Log).debugVerbosity;
         RunGate();
-        if (IsEnabled(Feature.MapLayer))
+        if (Gate.IsEnabled(Feature.MapLayer))
         {
             RegisterWayfindingLayer(api);
         }
@@ -65,15 +65,15 @@ public class WayfindingModSystem : ModSystem
         NavCommands.Register(api, this);
     }
 
+    public override void StartServerSide(ICoreServerAPI api)
+    {
+        RunGate();
+    }
+
     private static void RegisterWayfindingLayer(ICoreClientAPI api)
     {
         api.ModLoader.GetModSystem<WorldMapManager>()
             .RegisterMapLayer<WayfindingMapLayer>(WayfindingMapLayer.LayerCode, 1.1);
-    }
-
-    public override void StartServerSide(ICoreServerAPI api)
-    {
-        RunGate();
     }
 
     private void RunGate()

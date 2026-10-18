@@ -38,14 +38,24 @@ public class InfraBoundaryTests
     }
 
     [Fact]
-    public void Nav_root_uses_get_or_create_and_only_stats()
+    public void Nav_root_is_registered_once_and_owns_stats_and_debug()
     {
-        var source = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "Commands", "NavCommands.cs"));
-        Assert.Contains(".GetOrCreate(\"nav\")", source, StringComparison.Ordinal);
-        Assert.DoesNotContain(".Create(\"nav\")", source, StringComparison.Ordinal);
-        Assert.Contains("BeginSubCommand(\"stats\")", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("BeginSubCommand(\"share\")", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("BeginSubCommand(\"team\")", source, StringComparison.Ordinal);
+        var commands = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "Commands", "NavCommands.cs"));
+        var mod = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "WayfindingModSystem.cs"));
+        Assert.Equal(1, Count(commands, ".GetOrCreate(\"nav\")"));
+        Assert.DoesNotContain(".Create(\"nav\")", commands, StringComparison.Ordinal);
+        Assert.DoesNotContain(".Create(\"nav\")", mod, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetOrCreate(\"nav\")", mod, StringComparison.Ordinal);
+        Assert.Contains("BeginSubCommand(\"stats\")", commands, StringComparison.Ordinal);
+        Assert.Contains("BeginSubCommand(\"debug\")", commands, StringComparison.Ordinal);
+        Assert.Contains("BeginSubCommand(\"on\")", commands, StringComparison.Ordinal);
+        Assert.Contains("BeginSubCommand(\"off\")", commands, StringComparison.Ordinal);
+        Assert.Contains("BeginSubCommand(\"clear\")", commands, StringComparison.Ordinal);
+        Assert.Contains("BeginSubCommand(\"throw\")", commands, StringComparison.Ordinal);
+        Assert.DoesNotContain("BeginSubCommand(\"share\")", commands, StringComparison.Ordinal);
+        Assert.DoesNotContain("BeginSubCommand(\"team\")", commands, StringComparison.Ordinal);
+        Assert.Contains("if (Gate.IsEnabled(Feature.MapLayer))", mod, StringComparison.Ordinal);
+        Assert.Contains("RegisterMapLayer<WayfindingMapLayer>", mod, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -54,6 +64,19 @@ public class InfraBoundaryTests
         var source = File.ReadAllText(Path.Combine(RepoRoot(), "Wayfinding", "Infra", "RenderGuard.cs"));
         Assert.Contains("#if DEBUG", source, StringComparison.Ordinal);
         Assert.Contains("ForceThrow", source, StringComparison.Ordinal);
+    }
+
+    private static int Count(string text, string value)
+    {
+        var count = 0;
+        var start = 0;
+        while ((start = text.IndexOf(value, start, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            start += value.Length;
+        }
+
+        return count;
     }
 
     private static string RepoRoot()

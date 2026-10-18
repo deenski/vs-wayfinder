@@ -9,8 +9,8 @@ public static class NavCommands
 {
     public static void Register(ICoreClientAPI capi, WayfindingModSystem mod)
     {
-        // GetOrCreate so another mod system can add subcommands (KAN-21 share/team)
-        // without Create throwing when this root already exists.
+        // One root. GetOrCreate so a later mod system can add subcommands (KAN-21
+        // share/team) without Create throwing when this root already exists.
         capi.ChatCommands
             .GetOrCreate("nav")
             .WithDescription("Wayfinding")
@@ -38,7 +38,7 @@ public static class NavCommands
             .BeginSubCommand("debug")
                 .WithDescription("Map layer debug. Subcommands: on, clear, throw.")
                 .RequiresPrivilege(Privilege.chat)
-                .HandleWith(_ => TextCommandResult.Success(Status(mod)))
+                .HandleWith(_ => TextCommandResult.Success(Status(mod), null))
                 .BeginSubCommand("on")
                     .WithDescription("Draw a sample line 96 blocks east and 48 blocks south of the player.")
                     .RequiresPrivilege(Privilege.chat)
@@ -62,7 +62,7 @@ public static class NavCommands
         ICoreClientAPI? capi = mod.Client;
         if (capi?.World == null)
         {
-            return TextCommandResult.Success("Wayfinding is not on a client world yet.");
+            return TextCommandResult.Success("Wayfinding is not on a client world yet.", null);
         }
 
         int x = (int)args.Parsers[0].GetValue();
@@ -76,7 +76,8 @@ public static class NavCommands
             "Target set to spawn "
             + x + ", " + z
             + " (world " + (int)worldX + ", " + y + ", " + (int)worldZ + "). "
-            + GuardNote(mod));
+            + GuardNote(mod),
+            null);
     }
 
     static TextCommandResult SampleTarget(WayfindingModSystem mod)
@@ -84,7 +85,7 @@ public static class NavCommands
         var pos = mod.Client?.World.Player?.Entity?.Pos;
         if (pos == null)
         {
-            return TextCommandResult.Success("No player position yet.");
+            return TextCommandResult.Success("No player position yet.", null);
         }
 
         mod.Target.Set(
@@ -93,13 +94,13 @@ public static class NavCommands
             pos.Z + WayfindingMapLayer.SampleOffsetZ,
             NavTargetKind.Coordinate,
             null);
-        return TextCommandResult.Success("Drawing a sample line. " + Status(mod));
+        return TextCommandResult.Success("Drawing a sample line. " + Status(mod), null);
     }
 
     static TextCommandResult ClearTarget(WayfindingModSystem mod)
     {
         mod.Target.Clear();
-        return TextCommandResult.Success("Wayfinding target cleared.");
+        return TextCommandResult.Success("Wayfinding target cleared.", null);
     }
 
     static TextCommandResult ArmThrow(WayfindingModSystem mod)
@@ -107,16 +108,16 @@ public static class NavCommands
         WayfindingMapLayer? layer = mod.MapLayer;
         if (layer == null)
         {
-            return TextCommandResult.Success("Wayfinding map layer is not loaded yet.");
+            return TextCommandResult.Success("Wayfinding map layer is not loaded yet.", null);
         }
 
         if (!mod.RenderGuard.LayerEnabled)
         {
-            return TextCommandResult.Success("The render guard has already disabled the wayfinding layer for this session.");
+            return TextCommandResult.Success("The render guard has already disabled the wayfinding layer for this session.", null);
         }
 
         layer.ArmRenderException();
-        return TextCommandResult.Success("The next map render will throw once, then the render guard disables this layer.");
+        return TextCommandResult.Success("The next map render will throw once, then the render guard disables this layer.", null);
     }
 
     static string Status(WayfindingModSystem mod)

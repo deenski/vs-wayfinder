@@ -1,0 +1,1 @@
+vs-wayfinder GHCR bootstrap placeholder. This image contains no Vintage Story files.
