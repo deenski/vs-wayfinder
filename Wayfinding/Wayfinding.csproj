@@ -1,0 +1,114 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin\$(Configuration)\Mods\mod</OutputPath>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="VintagestoryAPI">
+      <HintPath>$(VINTAGE_STORY)/VintagestoryAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="VSSurvivalMod">
+      <HintPath>$(VINTAGE_STORY)/Mods/VSSurvivalMod.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="VSEssentials">
+      <HintPath>$(VINTAGE_STORY)/Mods/VSEssentials.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(VINTAGE_STORY)/Lib/Newtonsoft.Json.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="protobuf-net">
+      <HintPath>$(VINTAGE_STORY)/Lib/protobuf-net.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="cairo-sharp">
+      <HintPath>$(VINTAGE_STORY)/Lib/cairo-sharp.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+<ItemGroup>
+  <Content Include="modinfo.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+  </Content>
+</ItemGroup>
+
+<ItemGroup>
+  <Content Include="modicon.png" Condition="Exists('modicon.png')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+  </Content>
+</ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Wayfinding.Pathing\Wayfinding.Pathing.csproj" />
+  </ItemGroup>
+
+  <UsingTask TaskName="Microsoft.Build.Tasks.ZipDirectory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll" />
+
+  <Target Name="RequireVintageStory" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(VINTAGE_STORY)' == ''"
+           Text="Set VINTAGE_STORY to a Vintage Story 1.22 install that contains VintagestoryAPI.dll." />
+    <Error Condition="'$(VINTAGE_STORY)' != '' and !Exists('$(VINTAGE_STORY)/VintagestoryAPI.dll')"
+           Text="VINTAGE_STORY ($(VINTAGE_STORY)) does not contain VintagestoryAPI.dll." />
+  </Target>
+
+  <Target Name="RejectCopiedGameAssemblies" AfterTargets="Build">
+    <ItemGroup>
+      <_OutputDll Include="$(TargetDir)*.dll" />
+      <_LeakedGameDll Include="@(_OutputDll)"
+                      Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Filename)', '^(VintagestoryAPI|VintagestoryLib|VintagestoryServer|VSEssentials|VSSurvivalMod|VSCreativeMod|0Harmony|cairo-sharp|CairoSharp|protobuf-net|Newtonsoft\.Json)$'))" />
+    </ItemGroup>
+    <Error Condition="'@(_LeakedGameDll)' != ''"
+           Text="Game assemblies were copied into the mod output. Keep those references Private=false: @(_LeakedGameDll)" />
+  </Target>
+
+  <Target Name="PackageModZip" AfterTargets="RejectCopiedGameAssemblies" Condition="'$(Configuration)' == 'Release'">
+    <ReadLinesFromFile File="$(MSBuildProjectDirectory)/modinfo.json">
+      <Output TaskParameter="Lines" ItemName="_ModInfoLine" />
+    </ReadLinesFromFile>
+    <PropertyGroup>
+      <_ModInfoText>@(_ModInfoLine, ' ')</_ModInfoText>
+      <_ModId>$([System.Text.RegularExpressions.Regex]::Match($(_ModInfoText), '"modid"\s*:\s*"([^"]+)"').Groups[1].Value)</_ModId>
+      <_ModVersion>$([System.Text.RegularExpressions.Regex]::Match($(_ModInfoText), '"version"\s*:\s*"([^"]+)"').Groups[1].Value)</_ModVersion>
+      <_ZipDir>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../Releases'))/</_ZipDir>
+      <_ZipPath>$(_ZipDir)$(_ModId)_$(_ModVersion).zip</_ZipPath>
+      <_Stage>$(IntermediateOutputPath)modzip/</_Stage>
+      <_PathingDll>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../Wayfinding.Pathing/bin/$(Configuration)/net10.0/Wayfinding.Pathing.dll'))</_PathingDll>
+    </PropertyGroup>
+    <Error Condition="'$(_ModId)' == '' or '$(_ModVersion)' == ''" Text="Could not read modid and version from modinfo.json." />
+
+    <RemoveDir Directories="$(_Stage)" />
+    <MakeDir Directories="$(_Stage);$(_ZipDir)" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/modinfo.json" DestinationFolder="$(_Stage)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(_Stage)" />
+    <Copy SourceFiles="$(TargetDir)Wayfinding.Pathing.dll" DestinationFolder="$(_Stage)"
+          Condition="Exists('$(TargetDir)Wayfinding.Pathing.dll')" />
+    <Copy SourceFiles="$(_PathingDll)" DestinationFolder="$(_Stage)"
+          Condition="!Exists('$(_Stage)Wayfinding.Pathing.dll') and Exists('$(_PathingDll)')" />
+
+    <ItemGroup>
+      <_StagedDll Include="$(_Stage)*.dll" />
+      <_UnexpectedDll Include="@(_StagedDll)"
+                      Condition="'%(Filename)%(Extension)' != 'Wayfinding.dll' and '%(Filename)%(Extension)' != 'Wayfinding.Pathing.dll'" />
+    </ItemGroup>
+    <Error Condition="!Exists('$(_Stage)modinfo.json') or !Exists('$(_Stage)Wayfinding.dll')"
+           Text="Mod zip staging is missing modinfo.json or Wayfinding.dll." />
+    <Error Condition="!Exists('$(_Stage)Wayfinding.Pathing.dll')"
+           Text="Wayfinding.Pathing.dll was not staged. The mod references that project, so the zip must contain it." />
+    <Error Condition="'@(_UnexpectedDll)' != ''"
+           Text="Refusing to zip unexpected assemblies: @(_UnexpectedDll)" />
+
+    <Delete Files="$(_ZipPath)" Condition="Exists('$(_ZipPath)')" />
+    <ZipDirectory SourceDirectory="$(_Stage)" DestinationFile="$(_ZipPath)" />
+    <RemoveDir Directories="$(_Stage)" />
+    <Message Importance="high" Text="Packaged mod zip: $(_ZipPath)" />
+  </Target>
+
+</Project>

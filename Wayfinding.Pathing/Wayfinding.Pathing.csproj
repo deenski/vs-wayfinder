@@ -1,0 +1,40 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Game-free library. The assembly name is the reference identity before the
+    first comma, so a strong name matches. HintPaths are compared to the
+    expanded VINTAGE_STORY directory; MSBuild expands that property first.
+  -->
+  <Target Name="RejectGameReferences" BeforeTargets="ResolveAssemblyReferences">
+    <PropertyGroup>
+      <_ForbiddenNames>VintagestoryAPI|VintagestoryLib|VintagestoryServer|VSEssentials|VSSurvivalMod|VSCreativeMod|0Harmony|cairo-sharp|CairoSharp|Vintagestory</_ForbiddenNames>
+      <_NameRegex>(?i)\A(?:$(_ForbiddenNames))\z</_NameRegex>
+      <_VintageStoryRoot Condition="'$(VINTAGE_STORY)' != ''">$([System.IO.Path]::GetFullPath('$(VINTAGE_STORY)').Replace('\','/').TrimEnd('/'))</_VintageStoryRoot>
+      <_VintageStoryRootLower Condition="'$(_VintageStoryRoot)' != ''">$(_VintageStoryRoot.ToLowerInvariant())</_VintageStoryRootLower>
+    </PropertyGroup>
+    <ItemGroup>
+      <_NamedReference Include="@(Reference);@(PackageReference)">
+        <AssemblyName>$([System.IO.Path]::GetFileNameWithoutExtension($([System.String]::Copy('%(Identity)').Split(',')[0].Trim())))</AssemblyName>
+      </_NamedReference>
+      <_GameReference Include="@(_NamedReference)"
+                      Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(_NamedReference.AssemblyName)', '$(_NameRegex)'))" />
+      <_HintedReference Include="@(Reference)" Condition="'%(Reference.HintPath)' != ''">
+        <NormalizedHint>$([System.IO.Path]::GetFullPath('%(Reference.HintPath)').Replace('\','/'))</NormalizedHint>
+        <HintAssembly>$([System.IO.Path]::GetFileNameWithoutExtension('%(Reference.HintPath)'))</HintAssembly>
+      </_HintedReference>
+      <_GameReference Include="@(_HintedReference)"
+                      Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(_HintedReference.HintAssembly)', '$(_NameRegex)')) or ('$(_VintageStoryRootLower)' != '' and $([System.String]::Copy('%(_HintedReference.NormalizedHint)').ToLowerInvariant().StartsWith('$(_VintageStoryRootLower)/')))" />
+      <_GameReference Include="@(ProjectReference)"
+                      Condition="$([System.Text.RegularExpressions.Regex]::IsMatch($([System.IO.Path]::GetFileNameWithoutExtension('%(ProjectReference.Identity)')), '$(_NameRegex)'))" />
+    </ItemGroup>
+    <Error Condition="'@(_GameReference)' != ''"
+           Text="Wayfinding.Pathing must not reference game assemblies: @(_GameReference)." />
+  </Target>
+
+</Project>
