@@ -31,7 +31,10 @@ public enum BlockReason : byte
     /// <summary>The step climbs more than <see cref="ClimbCostOptions.MaxClimb"/>.</summary>
     TooHigh,
 
-    /// <summary>The step drops more than <see cref="ClimbCostOptions.MaxDrop"/>.</summary>
+    /// <summary>
+    /// The step drops more than <see cref="ClimbCostOptions.MaxDrop"/> and is not an allowed drop into water
+    /// at least <see cref="ClimbCostOptions.MinWaterDepth"/> deep.
+    /// </summary>
     TooDeep,
 
     /// <summary>The destination is not a position a player can occupy (no footing, inside a block, submerged).</summary>

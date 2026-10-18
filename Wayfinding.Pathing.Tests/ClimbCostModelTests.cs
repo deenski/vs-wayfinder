@@ -26,7 +26,8 @@ public class ClimbCostModelTests
     public void Defaults_MatchTheDesign()
     {
         ClimbCostOptions o = ClimbCostOptions.Default;
-        Assert.Equal((4.0, 1.0, 1, 3, 5.0, 2), (o.UphillPenalty, o.DownhillPenalty, o.MaxClimb, o.MaxDrop, o.WaterCost, o.HeadroomCells));
+        Assert.Equal((4.0, 1.0, 1, 3, 5.0, 2, 0, 2), (o.UphillPenalty, o.DownhillPenalty, o.MaxClimb, o.MaxDrop, o.WaterCost, o.HeadroomCells, o.MaxWaterDrop, o.MinWaterDepth));
+        Assert.Equal(o.MaxDrop, o.GeneratedDrop);
     }
 
     [Theory]

@@ -11,12 +11,15 @@ namespace Wayfinding.Pathing.Search;
 /// </summary>
 /// <remarks>
 /// <para><b>Moves.</b> From each position, every column in the 8 directions at every Y from <c>+MaxClimb</c> to
-/// <c>−MaxDrop</c>, kept when <see cref="ClimbCostModel.Evaluate"/> says Ok (the same move set as
-/// <c>ReferenceSearch</c>, so with build moves off the two always agree on cost). Build moves are added when
-/// <see cref="BuildMoveOptions.Allowed"/>; see <see cref="BuildMoveOptions"/>.</para>
+/// <c>−GeneratedDrop</c> (<see cref="ClimbCostOptions.MaxDrop"/>, or <see cref="ClimbCostOptions.MaxWaterDrop"/>
+/// when that is larger), kept when <see cref="ClimbCostModel.Evaluate"/> says Ok (the same move set as
+/// <c>ReferenceSearch</c>, so with build moves off the two always agree on cost). A drop past
+/// <see cref="ClimbCostOptions.MaxDrop"/> survives only when Evaluate accepts it as a landing in deep water.
+/// Build moves are added when <see cref="BuildMoveOptions.Allowed"/>; see <see cref="BuildMoveOptions"/>.</para>
 /// <para><b>Heuristic.</b> <c>h = octile(dx, dz) + UphillPenalty × max(0, goal.Y − y) + DownhillPenalty ×
 /// max(0, y − goal.Y)</c>. Every move costs at least its horizontal distance plus its own climb/drop penalties
-/// (water multiplies distance by ≥ 1 and build penalties are ≥ 0), so h is admissible and consistent and the
+/// (water multiplies distance by ≥ 1, an allowed water drop still pays <see cref="ClimbCostOptions.DownhillPenalty"/>
+/// per block, and build penalties are ≥ 0), so h is admissible and consistent and the
 /// first time the goal is dequeued its cost is optimal.</para>
 /// <para><b>Ties.</b> The open list is ordered by (f, h, X, Y, Z), a total order, and a node's parent only changes
 /// on a strictly cheaper path, so the same grid and endpoints always give the same route.</para>
@@ -285,11 +288,17 @@ public static class FineAStar
             GridPos cur = _nodes[ni].Pos;
             double g = _nodes[ni].G;
             int maxClimb = _model.Options.MaxClimb;
-            int maxDrop = _model.Options.MaxDrop;
+            int maxDrop = _model.Options.GeneratedDrop;
             foreach ((int dx, int dz) in Directions)
             {
                 for (int dy = maxClimb; dy >= -maxDrop; dy--)
                 {
+                    long ny = (long)cur.Y + dy;
+                    if (ny < int.MinValue || ny > int.MaxValue)
+                    {
+                        continue;
+                    }
+
                     GridPos next = cur.Offset(dx, dy, dz);
                     if (IsClosed(next))
                     {

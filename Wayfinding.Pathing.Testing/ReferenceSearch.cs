@@ -62,8 +62,9 @@ public sealed record ReferenceSearchResult(
 /// </summary>
 /// <remarks>
 /// From each position it tries every column in the 8 directions at every Y from <c>+MaxClimb</c> to
-/// <c>−MaxDrop</c> and keeps the moves <see cref="ClimbCostModel.Evaluate"/> reports as Ok. Moves into Unknown
-/// terrain are counted and skipped. Never throws for grid contents.
+/// <c>−GeneratedDrop</c> (the same span as the fine A*) and keeps the moves <see cref="ClimbCostModel.Evaluate"/>
+/// reports as Ok. A drop past <c>MaxDrop</c> is kept only when Evaluate accepts it as deep water. Moves into
+/// Unknown terrain are counted and skipped. Never throws for grid contents.
 /// </remarks>
 public static class ReferenceSearch
 {
@@ -96,7 +97,7 @@ public static class ReferenceSearch
         int expanded = 0;
         int unknownMoves = 0;
         int maxClimb = model.Options.MaxClimb;
-        int maxDrop = model.Options.MaxDrop;
+        int maxDrop = model.Options.GeneratedDrop;
 
         while (open.TryDequeue(out GridPos current, out double g))
         {
@@ -120,6 +121,12 @@ public static class ReferenceSearch
             {
                 for (int dy = maxClimb; dy >= -maxDrop; dy--)
                 {
+                    long ny = (long)current.Y + dy;
+                    if (ny < int.MinValue || ny > int.MaxValue)
+                    {
+                        continue;
+                    }
+
                     GridPos next = current.Offset(dx, dy, dz);
                     if (closed.Contains(next))
                     {

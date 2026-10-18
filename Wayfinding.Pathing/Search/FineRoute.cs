@@ -45,7 +45,7 @@ public enum MoveKind : byte
     /// <summary>An ordinary walking step (climb up to MaxClimb, drop up to MaxDrop).</summary>
     Walk,
 
-    /// <summary>A step that ends with the feet in water.</summary>
+    /// <summary>A step that ends with the feet in water, including an allowed drop into deep water.</summary>
     Swim,
 
     /// <summary>Part of a Step build move: 1 block, climb MaxClimb + 1 (climb 2 with the defaults).</summary>

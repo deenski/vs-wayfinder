@@ -36,6 +36,9 @@ public enum StandKind : byte
 /// <item><description>Feet is Air/Walkable: <see cref="StandKind.Ground"/> if support is Solid,
 /// <see cref="StandKind.Unknown"/> if support is Unknown, otherwise <see cref="StandKind.None"/>.</description></item>
 /// </list>
+/// <para>A swim landing stops at the feet cell: the cells below it are not read, so a puddle and deep water
+/// classify the same. Water depth for a drop past <c>MaxDrop</c> is the climb cost model's job (KAN-64).
+/// An Unknown cell is never treated as air here.</para>
 /// </remarks>
 public static class Standability
 {
