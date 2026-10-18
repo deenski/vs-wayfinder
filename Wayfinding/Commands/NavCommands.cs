@@ -71,7 +71,7 @@ public static class NavCommands
             (int)Math.Floor(pos.X + WayfindingMapLayer.SampleOffsetX),
             (int)Math.Floor(pos.Y),
             (int)Math.Floor(pos.Z + WayfindingMapLayer.SampleOffsetZ));
-        NavReply reply = targets.SetCoordinate(coordinate, Spawn(mod));
+        NavReply reply = targets.SetCoordinate(coordinate, Spawn(mod), pos.Dimension);
         if (!reply.Ok)
         {
             return TextCommandResult.Error(reply.Message);

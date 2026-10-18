@@ -146,8 +146,6 @@ public partial class WayfindingModSystem : ModSystem
                 hud.Dispose();
                 hud = null;
             }
-
-            capi = null;
         }
 
         // Arrival (KAN-23) before the tether (KAN-22). The tether reads TeamService
@@ -160,6 +158,7 @@ public partial class WayfindingModSystem : ModSystem
         navigation?.OnLeaveWorld();
         navigation?.Dispose();
         navigation = null;
+        capi = null;
         base.Dispose();
     }
 }

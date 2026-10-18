@@ -202,7 +202,7 @@ public sealed class NavTargets
         return NavReply.Success("Navigating to player \"" + name + "\".");
     }
 
-    public NavReply Coord(string? text, SpawnOrigin spawn, int mapHeight)
+    public NavReply Coord(string? text, SpawnOrigin spawn, int mapHeight, int? dimension = null)
     {
         if (!MapAllowed)
         {
@@ -219,10 +219,15 @@ public sealed class NavTargets
             return NavReply.Fail(error);
         }
 
-        return SetCoordinate(parsed.Absolute, spawn);
+        return SetCoordinate(parsed.Absolute, spawn, dimension);
     }
 
-    public NavReply SetCoordinate(AbsoluteCoord coordinate, SpawnOrigin? spawn)
+    /// <summary>
+    /// Sets a coordinate target. <paramref name="dimension"/> is the local player's
+    /// dimension at that moment. Null leaves it unconfirmed, which is also how a
+    /// coordinate saved before stamping existed is read back.
+    /// </summary>
+    public NavReply SetCoordinate(AbsoluteCoord coordinate, SpawnOrigin? spawn, int? dimension = null)
     {
         if (!MapAllowed)
         {
@@ -234,7 +239,7 @@ public sealed class NavTargets
             return notReady;
         }
 
-        current = NavTarget.At(coordinate);
+        current = NavTarget.At(coordinate, dimension);
         Persist();
         Changed?.Invoke();
         return NavReply.Success(NavigatingCoordinate(coordinate, spawn));
@@ -369,6 +374,21 @@ public sealed class NavTargets
 
         reply = NavReply.Fail(WorldNotReadyMessage);
         return false;
+    }
+
+    /// <summary>
+    /// Drops the active target and deletes its persisted record, including a waypoint Guid.
+    /// Arrival uses this. Returns false when no world is attached or no target is set.
+    /// </summary>
+    public bool ClearTarget()
+    {
+        if (worldId is null || current.Kind == NavTargetKind.None)
+        {
+            return false;
+        }
+
+        Clear();
+        return true;
     }
 
     private void Clear()
