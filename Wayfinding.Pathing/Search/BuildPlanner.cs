@@ -250,13 +250,9 @@ public static class BuildPlanner
                     && (!afterBuild || (site > 0 && from == route.BuildSites[site - 1].To));
                 if (newSite)
                 {
+                    // A cell an earlier site already filled is simply solid already: placing it again is a no-op,
+                    // not a conflict (PR #10 round 2, must-fix 1). DedupePlacements drops such repeats.
                     own = route.BuildSites[site].Blocks;
-                    var dup = own.Where(placed.Contains).ToArray();
-                    if (dup.Length > 0)
-                    {
-                        return dup; // a block where an earlier site already put one
-                    }
-
                     placed.UnionWith(own);
                     site++;
                 }
@@ -279,12 +275,104 @@ public static class BuildPlanner
                     .Where(p => p.X >= x0 && p.X <= x1 && p.Z >= z0 && p.Z <= z1 && p.Y >= y0 && p.Y <= y1 && !own.Contains(p))
                     .OrderBy(p => p.X).ThenBy(p => p.Y).ThenBy(p => p.Z)
                     .ToArray();
+                // Fallback: the step fails only on the cumulative view (it passed FineAStar's own check), so some earlier
+                // block must be in the way; when none is inside the step's box (a sweep through a corner cell the box
+                // does not model), forbid every earlier block. Broad, but it always terminates and stays safe.
                 return hits.Length > 0 ? hits : placed.Where(p => !own.Contains(p)).OrderBy(p => p.X).ThenBy(p => p.Y).ThenBy(p => p.Z).ToArray();
             }
         }
 
         return [];
     }
+
+    /// <summary>
+    /// Removes repeated placements: a block a later build site places into a cell an earlier site of the same route
+    /// already filled. The repeat is dropped from the later <see cref="BuildSite"/> and from its step's
+    /// <see cref="RouteStep.Blocks"/>, and its <paramref name="buildPenalty"/> is taken off the step and route cost,
+    /// so <see cref="FineRoute.BlocksNeeded"/> counts distinct cells and the cost charges each block once.
+    /// </summary>
+    /// <remarks>
+    /// Why repeats happen: <see cref="FineAStar"/>'s state is position-only and each move sees only its own blocks, so
+    /// a route that bridges, steps onto its own bridge and bridges on again re-places the shared cell.
+    /// </remarks>
+    /// <param name="route">A route.</param>
+    /// <param name="buildPenalty">The per-block penalty the route was planned with.</param>
+    /// <returns>The route without repeats (the same instance when it has none).</returns>
+    public static FineRoute DedupePlacements(FineRoute route, double buildPenalty)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        if (route.BuildSites.Count < 2)
+        {
+            return route;
+        }
+
+        var placed = new HashSet<GridPos>();
+        var sites = new List<BuildSite>(route.BuildSites.Count);
+        var steps = route.Steps.ToArray();
+        double saved = 0;
+        bool any = false;
+        int stepIndex = 1;
+        foreach (BuildSite b in route.BuildSites)
+        {
+            // The steps of this site: from its first build step after its From, in order, carrying its blocks.
+            while (stepIndex < steps.Length && !(steps[stepIndex - 1].Pos == b.From && IsBuild(steps[stepIndex].Kind)))
+            {
+                stepIndex++;
+            }
+
+            var kept = new List<GridPos>(b.Blocks.Count);
+            int blockIndex = 0;
+            for (int i = stepIndex; i < steps.Length && IsBuild(steps[i].Kind) && blockIndex < b.Blocks.Count; i++)
+            {
+                int removed = 0;
+                for (int k = 0; k < steps[i].Blocks && blockIndex < b.Blocks.Count; k++, blockIndex++)
+                {
+                    GridPos cell = b.Blocks[blockIndex];
+                    if (placed.Contains(cell))
+                    {
+                        removed++;
+                    }
+                    else
+                    {
+                        kept.Add(cell);
+                    }
+                }
+
+                if (removed > 0)
+                {
+                    any = true;
+                    saved += buildPenalty * removed;
+                    steps[i] = steps[i] with { Blocks = steps[i].Blocks - removed, Cost = steps[i].Cost - buildPenalty * removed };
+                }
+
+                stepIndex = i + 1;
+                if (steps[i].Pos == b.To)
+                {
+                    break;
+                }
+            }
+
+            // Blocks not tied to a step (should not happen) are kept unless repeated.
+            for (; blockIndex < b.Blocks.Count; blockIndex++)
+            {
+                if (!placed.Contains(b.Blocks[blockIndex]))
+                {
+                    kept.Add(b.Blocks[blockIndex]);
+                }
+                else
+                {
+                    any = true;
+                }
+            }
+
+            placed.UnionWith(b.Blocks);
+            sites.Add(kept.Count == b.Blocks.Count ? b : b with { Blocks = kept.ToArray() });
+        }
+
+        return any ? route with { Steps = steps, BuildSites = sites, Cost = route.Cost - saved } : route;
+    }
+
+    private static bool IsBuild(MoveKind kind) => kind is MoveKind.Step or MoveKind.Pillar or MoveKind.Bridge;
 
     private sealed class Run(IBlockGrid grid, GridPos start, GridPos goal, FineSearchOptions search, CancellationToken token)
     {
@@ -322,12 +410,19 @@ public static class BuildPlanner
 
             if (r.BuildSites.Count > 0 && !Cancelled && FindConflicts(grid, r, search.Model).Count > 0)
             {
-                // Out of budget with an invalid route: report no route rather than one that cannot be walked.
-                return FineRoute.Empty(FineSearchStatus.NoPath, r.Expanded, r.UnknownMoves);
+                // The budget ran out with an invalid route (PR #10 round 2, must-fix 2): report no route, with the
+                // limit that ran out. NoPath stays reserved for a search that proved the goal unreachable.
+                return FineRoute.Empty(OutOfBudgetStatus(r), r.Expanded, r.UnknownMoves);
             }
 
             return r;
         }
+
+        /// <summary>TimedOut when the shared clock ran out, else BudgetExhausted (nodes, or the search's own limit).</summary>
+        private FineSearchStatus OutOfBudgetStatus(FineRoute last) =>
+            last.Status == FineSearchStatus.TimedOut || Remaining() is { } t && t <= TimeSpan.Zero
+                ? FineSearchStatus.TimedOut
+                : FineSearchStatus.BudgetExhausted;
 
         public BudgetedRoute Cancel(int carried) =>
             new(FineRoute.Empty(FineSearchStatus.Cancelled), BuildBudgetStatus.NoRoute, 0, false, carried) { Repairs = _repairs, Expanded = _expanded };
@@ -359,7 +454,7 @@ public static class BuildPlanner
                 MaxTime = Remaining(),
             }, token);
             _expanded += r.Expanded;
-            return r;
+            return DedupePlacements(r, build.BuildPenalty);
         }
 
         private TimeSpan? Remaining()

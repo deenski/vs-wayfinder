@@ -372,7 +372,8 @@ public class BuildPlannerTests
     }
 
     /// <summary>Replays the route with every block placed so far (independent of BuildPlanner.FindConflicts).</summary>
-    private static void AssertWalkableWithAllBlocksPlaced(IBlockGrid grid, FineRoute route)
+    /// <remarks>Placing into a cell an earlier site already filled is a no-op (round 2); planner routes have none.</remarks>
+    private static void AssertWalkableWithAllBlocksPlaced(IBlockGrid grid, FineRoute route, bool requireDistinct = true)
     {
         var placed = new List<GridPos>();
         int site = 0;
@@ -382,7 +383,11 @@ public class BuildPlannerTests
             GridPos from = route.Steps[i - 1].Pos;
             if (site < route.BuildSites.Count && from == route.BuildSites[site].From && s.Kind is MoveKind.Step or MoveKind.Pillar or MoveKind.Bridge)
             {
-                Assert.DoesNotContain(route.BuildSites[site].Blocks, placed.Contains);
+                if (requireDistinct)
+                {
+                    Assert.DoesNotContain(route.BuildSites[site].Blocks, placed.Contains);
+                }
+
                 placed.AddRange(route.BuildSites[site].Blocks);
                 site++;
             }
@@ -397,9 +402,9 @@ public class BuildPlannerTests
 
     [Theory]
     [InlineData(1691, 1.0)]
-    [InlineData(1357, 0.5)]
     [InlineData(515, 0.0)]
     [InlineData(668, 0.0)]
+    [InlineData(2486, 0.0)]
     public void RouteThatStepsIntoItsOwnBlock_IsRepaired(int seed, double penalty)
     {
         BlockGridSnapshot grid = FakeGrid.FromHeightmap(HoleMap(seed));
@@ -409,22 +414,23 @@ public class BuildPlannerTests
         // The raw search really does produce a route that walks into one of its own blocks.
         FineRoute raw = FineAStar.FindPath(grid, start, goal, new FineSearchOptions { Build = policy.ToMoveOptions(64) });
         Assert.NotEmpty(BuildPlanner.FindConflicts(grid, raw, Model));
-        Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => AssertWalkableWithAllBlocksPlaced(grid, raw)); // steps into, or places onto, an earlier block
+        Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => AssertWalkableWithAllBlocksPlaced(grid, raw, requireDistinct: false)); // steps into an earlier block
 
         BudgetedRoute r = BuildPlanner.FindPath(grid, start, goal, policy, 64);
         Assert.True(r.Repairs > 0);
         Assert.True(r.Route.HasRoute, $"status {r.Route.Status}");
         Assert.Empty(BuildPlanner.FindConflicts(grid, r.Route, Model));
         AssertWalkableWithAllBlocksPlaced(grid, r.Route);
-        AssertValid(grid, r.Route, Model, buildPenalty: penalty);
+        AssertValid(grid, r.Route, Model, buildPenalty: penalty, cumulative: true);
     }
 
     [Fact]
     public void EveryRoute_IsWalkableWithAllItsBlocksPlaced()
     {
-        foreach (double penalty in new[] { 0.0, 1.0, 24.0 })
+        // Seeds 1-4000 (round 2 widened this from 700 to reach 3524, 2597, 1879 and 1135).
+        foreach (double penalty in new[] { 0.0, 0.5, 1.0, 24.0 })
         {
-            for (int seed = 1; seed <= 700; seed++)
+            for (int seed = 1; seed <= 4000; seed++)
             {
                 BlockGridSnapshot grid = FakeGrid.FromHeightmap(HoleMap(seed));
                 if (!Endpoints(grid, seed, out GridPos start, out GridPos goal))
@@ -432,13 +438,167 @@ public class BuildPlannerTests
                     continue;
                 }
 
-                BudgetedRoute r = BuildPlanner.FindPath(grid, start, goal, On with { BuildPenalty = penalty, MaxBlocks = 64 }, 64);
+                BuildPolicy policy = On with { BuildPenalty = penalty, MaxBlocks = 64 };
+                BudgetedRoute r = BuildPlanner.FindPath(grid, start, goal, policy, 64);
+                if (r.Route.Status == FineSearchStatus.NoPath)
+                {
+                    // A false NoPath (round 2): the raw search, which ignores the route's own blocks, cannot do better.
+                    FineRoute raw = FineAStar.FindPath(grid, start, goal, new FineSearchOptions { Build = policy.ToMoveOptions(64) });
+                    Assert.False(raw.Found, $"seed {seed} penalty {penalty}: NoPath but the raw search found {raw.Steps.Count} steps");
+                }
+
                 if (r.Route.HasRoute)
                 {
                     AssertWalkableWithAllBlocksPlaced(grid, r.Route);
+                    Assert.Equal(r.Route.BuildSites.SelectMany(b => b.Blocks).Count(), r.BlocksNeeded);
                 }
             }
         }
+    }
+
+    // -------------------------------------------------------------- PR #10 round 2: repeated placements
+
+    /// <summary>
+    /// HoleMap seeds whose raw <see cref="FineAStar"/> route places the same cell twice (a later site re-fills a cell an
+    /// earlier site already filled) and has no other conflict. Found by sweeping seeds 1-4000; 3524 is Senior's report
+    /// (same generator, start (10,1,4), goal (3,1,22), raw 11 placements of 10 distinct cells at penalty 0 and 0.5).
+    /// </summary>
+    [Theory]
+    [InlineData(3524, 0.0, 11, 10)]
+    [InlineData(3524, 0.5, 11, 10)]
+    [InlineData(3524, 1.0, 9, 8)]
+    [InlineData(1357, 0.0, 5, 4)]
+    [InlineData(1357, 0.5, 2, 1)]
+    [InlineData(2597, 0.0, 8, 7)]
+    [InlineData(2597, 0.5, 5, 4)]
+    [InlineData(1879, 0.0, 4, 3)]
+    [InlineData(1135, 0.0, 4, 3)]
+    public void RepeatedPlacement_IsANoOp_NotAConflict(int seed, double penalty, int rawPlacements, int distinct)
+    {
+        BlockGridSnapshot grid = FakeGrid.FromHeightmap(HoleMap(seed));
+        Assert.True(Endpoints(grid, seed, out GridPos start, out GridPos goal));
+        BuildPolicy policy = On with { BuildPenalty = penalty, MaxBlocks = 64 };
+
+        FineRoute raw = FineAStar.FindPath(grid, start, goal, new FineSearchOptions { Build = policy.ToMoveOptions(64) });
+        List<GridPos> placements = raw.BuildSites.SelectMany(b => b.Blocks).ToList();
+        Assert.Equal(rawPlacements, placements.Count);
+        Assert.Equal(distinct, placements.Distinct().Count());
+        Assert.Empty(BuildPlanner.FindConflicts(grid, raw, Model)); // a repeat alone is not a conflict
+        AssertWalkableWithAllBlocksPlaced(grid, raw, requireDistinct: false);
+
+        BudgetedRoute r = BuildPlanner.FindPath(grid, start, goal, policy, 64);
+        Assert.Equal(FineSearchStatus.Found, r.Route.Status);
+        Assert.Equal(0, r.Repairs);
+        Assert.Equal(distinct, r.BlocksNeeded);
+        Assert.Equal(distinct, r.Route.BlocksNeeded);
+        Assert.Equal(r.Route.Steps.Select(s => s.Pos), raw.Steps.Select(s => s.Pos)); // same path, just fewer blocks
+        Assert.Equal(raw.Cost - penalty * (rawPlacements - distinct), r.Route.Cost, 1e-9);
+        AssertWalkableWithAllBlocksPlaced(grid, r.Route); // distinct
+        AssertValid(grid, r.Route, Model, buildPenalty: penalty, cumulative: true);
+    }
+
+    /// <summary>
+    /// Hand-built 9x9 lava map whose only crossing re-fills a cell an earlier bridge already filled: with that cell
+    /// forbidden there is no complete route at all, so treating the repeat as a conflict (forbid it, re-plan) can only
+    /// fail. Start (1,2,1), goal (7,2,7).
+    /// </summary>
+    private static readonly string[] OnlyCrossingRepeats =
+    [
+        "#########",
+        "#1#1L1LL#",
+        "#1LL1#LL#",
+        "##LL#LL1#",
+        "#L1111LL#",
+        "#LLLLLL1#",
+        "#L111111#",
+        "#111#111#",
+        "#########",
+    ];
+
+    [Fact]
+    public void OnlyCrossingThatRepeatsAPlacement_IsFound()
+    {
+        BlockGridSnapshot grid = FakeGrid.FromHeightmap(OnlyCrossingRepeats);
+        GridPos start = new(1, 2, 1), goal = new(7, 2, 7), repeated = new(3, 1, 2);
+        BuildPolicy policy = On with { BuildPenalty = 0, MaxBlocks = 64 };
+
+        FineRoute raw = FineAStar.FindPath(grid, start, goal, new FineSearchOptions { Build = policy.ToMoveOptions(64) });
+        List<GridPos> placements = raw.BuildSites.SelectMany(b => b.Blocks).ToList();
+        Assert.Equal(2, placements.Count(c => c == repeated));
+        Assert.Equal(placements.Count - 1, placements.Distinct().Count());
+
+        // Forbidding the repeated cell (what round 1 did) leaves no complete route.
+        BlockGridSnapshotBuilder b = FakeGrid.HeightmapBuilder(OnlyCrossingRepeats);
+        b.AddFlags(repeated.X, repeated.Y, repeated.Z, CellFlags.BuildForbidden);
+        Assert.False(FineAStar.FindPath(b.Build(), start, goal, new FineSearchOptions { Build = policy.ToMoveOptions(64) }).Found);
+
+        BudgetedRoute r = BuildPlanner.FindPath(grid, start, goal, policy, 64);
+        Assert.Equal(FineSearchStatus.Found, r.Route.Status);
+        Assert.Equal(0, r.Repairs);
+        Assert.Equal(placements.Count - 1, r.BlocksNeeded);
+        Assert.Single(r.Route.BuildSites.SelectMany(s => s.Blocks), c => c == repeated);
+        AssertWalkableWithAllBlocksPlaced(grid, r.Route);
+        AssertValid(grid, r.Route, Model, buildPenalty: 0, cumulative: true);
+    }
+
+    // -------------------------------------------------------------- PR #10 round 2: budget status after a conflict
+
+    /// <summary>
+    /// A node cap that runs out during (or before) a conflict re-plan is BudgetExhausted, never NoPath; any partial route
+    /// still follows the usual rules (no conflicts, valid moves). 1691 and 515 hit a real conflict first (Repairs 1);
+    /// 1357 is Senior's 50-node case (since dedupe it no longer conflicts, but the status must still not be NoPath).
+    /// </summary>
+    [Theory]
+    [InlineData(1691, 1.0, 50, 1)]
+    [InlineData(1691, 0.5, 50, 1)]
+    [InlineData(515, 0.0, 94, 1)]
+    [InlineData(668, 0.0, 271, 1)]
+    [InlineData(1357, 0.5, 50, 0)]
+    public void NodeBudgetAfterConflict_IsBudgetExhausted(int seed, double penalty, int maxNodes, int repairs)
+    {
+        BlockGridSnapshot grid = FakeGrid.FromHeightmap(HoleMap(seed));
+        Assert.True(Endpoints(grid, seed, out GridPos start, out GridPos goal));
+        BuildPolicy policy = On with { BuildPenalty = penalty, MaxBlocks = 64 };
+
+        BudgetedRoute r = BuildPlanner.FindPath(grid, start, goal, policy, 64, new FineSearchOptions { MaxNodes = maxNodes });
+        Assert.Equal(FineSearchStatus.BudgetExhausted, r.Route.Status);
+        Assert.Equal(repairs, r.Repairs);
+        Assert.InRange(r.Expanded, 1, maxNodes);
+        AssertPartialFollowsTheRules(grid, r, penalty);
+    }
+
+    /// <summary>
+    /// Same for a time budget, on an injected clock (each read advances it by <paramref name="tickMs"/>), so the result
+    /// does not depend on the machine: 5 ms runs out after the first search found a conflicting route.
+    /// </summary>
+    [Theory]
+    [InlineData(515, 0.0, 1.0, 1)]
+    [InlineData(1691, 1.0, 1.0, 1)]
+    [InlineData(668, 0.0, 0.5, 1)]
+    [InlineData(1357, 0.5, 2.0, 0)]
+    public void TimeBudgetAfterConflict_IsTimedOut(int seed, double penalty, double tickMs, int repairs)
+    {
+        BlockGridSnapshot grid = FakeGrid.FromHeightmap(HoleMap(seed));
+        Assert.True(Endpoints(grid, seed, out GridPos start, out GridPos goal));
+        BuildPolicy policy = On with { BuildPenalty = penalty, MaxBlocks = 64 };
+        var clock = new SteppingTimeProvider(TimeSpan.FromMilliseconds(tickMs));
+
+        BudgetedRoute r = BuildPlanner.FindPath(grid, start, goal, policy, 64, new FineSearchOptions { MaxTime = TimeSpan.FromMilliseconds(5), TimeProvider = clock });
+        Assert.Equal(FineSearchStatus.TimedOut, r.Route.Status);
+        Assert.Equal(repairs, r.Repairs);
+        AssertPartialFollowsTheRules(grid, r, penalty);
+    }
+
+    private static void AssertPartialFollowsTheRules(IBlockGrid grid, BudgetedRoute r, double penalty)
+    {
+        if (!r.Route.HasRoute)
+        {
+            return;
+        }
+
+        Assert.Empty(BuildPlanner.FindConflicts(grid, r.Route, Model));
+        AssertWalkableWithAllBlocksPlaced(grid, r.Route);
+        AssertValid(grid, r.Route, Model, buildPenalty: penalty, cumulative: true);
     }
 
     // -------------------------------------------------------------- PR #10 review: other tests
