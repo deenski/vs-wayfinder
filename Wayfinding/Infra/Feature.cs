@@ -8,6 +8,7 @@ public enum Feature
     MapViewport,
     Waypoints,
     RemoteTracking,
+    MinimapEdge,
 }
 
 public enum MemberKind
@@ -15,6 +16,7 @@ public enum MemberKind
     Field,
     Method,
     GenericMethodDefinition,
+    Property,
 }
 
 public sealed class MemberRequirement

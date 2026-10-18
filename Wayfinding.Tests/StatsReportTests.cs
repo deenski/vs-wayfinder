@@ -13,6 +13,7 @@ public class StatsReportTests
 
         Assert.Contains("[wayfinding] verbosity: 0", report, StringComparison.Ordinal);
         Assert.Contains("[wayfinding] MapLayer: enabled", report, StringComparison.Ordinal);
+        Assert.Contains("[wayfinding] MinimapEdge: enabled", report, StringComparison.Ordinal);
         Assert.Contains("[wayfinding] render guard: enabled", report, StringComparison.Ordinal);
         Assert.Contains("[wayfinding] plan ms: last n/a, avg n/a, p95 n/a (window 100)", report, StringComparison.Ordinal);
         Assert.Contains("[wayfinding] nodes expanded: n/a", report, StringComparison.Ordinal);
@@ -38,6 +39,7 @@ public class StatsReportTests
         var gate = new VersionGate();
         var report = StatsReport.Format(gate, new RenderGuard(new WayfindingLog(new ListSink())), 2, metrics);
         Assert.Contains("[wayfinding] MapLayer: n/a", report, StringComparison.Ordinal);
+        Assert.Contains("[wayfinding] MinimapEdge: n/a", report, StringComparison.Ordinal);
         Assert.Contains("[wayfinding] verbosity: 2", report, StringComparison.Ordinal);
         Assert.Contains("last 30, avg 20, p95 30 (window 100)", report, StringComparison.Ordinal);
         Assert.Contains("[wayfinding] nodes expanded: 80", report, StringComparison.Ordinal);
