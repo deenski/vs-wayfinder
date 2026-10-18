@@ -33,7 +33,7 @@ public static class NavTargetCommands
                 .HandleWith(args => session.Player(ArgText(args)))
             .EndSubCommand()
             .BeginSubCommand("coord")
-                .WithDescription("Navigate to coordinates. X and Z are spawn-relative, the way the map shows them. Y is absolute height.")
+                .WithDescription("Navigate to coordinates. X and Z are spawn-relative, the way the map shows them. Y is absolute height, from 0 up to the world height minus 1.")
                 .WithAdditionalInformation("X and Z are spawn-relative: absolute equals the displayed number plus the spawn block, matching the map and /waypoint list. Y, when given, is absolute height and is not offset by spawn.")
                 .WithExamples(".nav coord 10 -4", ".nav coord 10 70 -4")
                 .RequiresPrivilege(Privilege.chat)
@@ -67,7 +67,8 @@ public static class NavTargetCommands
 
 /// <summary>
 /// Client adapter for <see cref="NavTargets"/>. Player targets go through
-/// <see cref="ITeammateVisibility"/>, which the team service implements.
+/// <see cref="ITeammateVisibility"/>. TeamService does the server-side name-to-uid lookup
+/// through AllOnlinePlayers and fails closed: an unknown name is not visible.
 /// </summary>
 public sealed class ClientNavSession
 {
@@ -156,7 +157,8 @@ public sealed class ClientNavSession
             return TextCommandResult.Error(error);
         }
 
-        return Reply(Targets.Coord(argument, spawn));
+        // MapSizeY is the world height in blocks. The range check lives in the parser.
+        return Reply(Targets.Coord(argument, spawn, MapHeight()));
     }
 
     public TextCommandResult Off()
@@ -258,6 +260,12 @@ public sealed class ClientNavSession
         }
 
         Targets.SetMapAllowed(allowed);
+    }
+
+    private int MapHeight()
+    {
+        var height = capi.World?.BlockAccessor?.MapSizeY ?? 0;
+        return height > 0 ? height : 0;
     }
 
     private bool TrySpawn(out SpawnOrigin spawn, out string error)
