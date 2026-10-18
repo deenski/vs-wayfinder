@@ -8,6 +8,44 @@ namespace Wayfinding.Pathing.Teams;
 /// <param name="Uid">Player uid.</param>
 public readonly record struct OnlinePlayer(string Name, string Uid);
 
+/// <summary>Name lookups against the online player list. No entity is required.</summary>
+public static class OnlinePlayers
+{
+    /// <summary>
+    /// Maps an exact player name to one online uid. An unknown name, an empty
+    /// name, and two players who share the name but not the uid return null.
+    /// </summary>
+    /// <param name="name">Player name, matched with ordinal equality.</param>
+    /// <param name="players">Online players. Null is treated as nobody online.</param>
+    /// <returns>The matching uid, or null when the name does not resolve to one player.</returns>
+    public static string? UidForName(string? name, IReadOnlyList<OnlinePlayer>? players)
+    {
+        if (string.IsNullOrEmpty(name) || players is null)
+        {
+            return null;
+        }
+
+        string? found = null;
+        foreach (var player in players)
+        {
+            if (string.IsNullOrEmpty(player.Uid)
+                || !string.Equals(player.Name, name, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (found is not null && !string.Equals(found, player.Uid, StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            found = player.Uid;
+        }
+
+        return found;
+    }
+}
+
 /// <summary>What <see cref="TeamModel.TryApplyChat"/> did with one chat line.</summary>
 public enum ShareChatDisposition
 {

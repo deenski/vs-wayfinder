@@ -233,6 +233,23 @@ public sealed class TeamModel : ITeamService
         return false;
     }
 
+    /// <summary>
+    /// True when <paramref name="playerNameOrUid"/> is a visible teammate uid,
+    /// or an online name that maps to exactly one such uid. An unknown name is hidden.
+    /// </summary>
+    /// <param name="playerNameOrUid">Player name or uid, as <c>.nav player</c> receives it.</param>
+    /// <param name="onlinePlayers">Online players used for the name lookup. Null hides every name.</param>
+    internal bool IsVisibleNameOrUid(string? playerNameOrUid, IReadOnlyList<OnlinePlayer>? onlinePlayers)
+    {
+        if (IsVisibleTeammate(playerNameOrUid))
+        {
+            return true;
+        }
+
+        var uid = OnlinePlayers.UidForName(playerNameOrUid, onlinePlayers);
+        return uid is not null && IsVisibleTeammate(uid);
+    }
+
     /// <inheritdoc />
     public IReadOnlyCollection<string> GetVisibleTeammates()
     {

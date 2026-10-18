@@ -42,6 +42,22 @@ public class TeamVisibilityTests
     }
 
     [Fact]
+    public void Player_name_rejects_a_non_teammate_and_accepts_a_share_on_teammate()
+    {
+        var team = PartyOf("local");
+        Assert.Equal(ShareChatDisposition.Applied, Announce(team, PartyId, true, Maili));
+
+        Assert.False(team.IsVisibleNameOrUid("Oren", Party));
+        Assert.False(team.IsVisibleNameOrUid("Ghost", Party));
+        Assert.False(team.IsVisibleNameOrUid("Maili", null));
+        Assert.True(team.IsVisibleNameOrUid("Maili", Party));
+        Assert.True(team.IsVisibleNameOrUid("maili", Party));
+
+        var twins = new[] { Maili, new OnlinePlayer("Maili", "other") };
+        Assert.False(team.IsVisibleNameOrUid("Maili", twins));
+    }
+
+    [Fact]
     public void Announcement_with_share_on_makes_the_player_visible()
     {
         var team = PartyOf("local");
