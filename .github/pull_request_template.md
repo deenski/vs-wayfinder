@@ -1,5 +1,7 @@
 Process rules live only in Jira KAN-40 and this template. Only the assigned reviewer gives next steps on a PR.
 
+Follow the [ponytail skill](https://github.com/DietrichGebert/ponytail): smallest complete change, never cut validation, security or tests. Reviews are ponytail reviews (real problems only, one pass, nits go to a Jira follow-up).
+
 ## Ticket
 
 `KAN-##`
@@ -12,6 +14,7 @@ Process rules live only in Jira KAN-40 and this template. Only the assigned revi
 
 - [ ] No conflicts with main
 - [ ] CI green (guard-and-unit-tests, build-and-load)
+- [ ] Base branch merged in and CI green
 - [ ] At least one "can this test fail?" probe done (break the code and watch the test fail)
 - [ ] Every claimed fix checked in the code at the head sha
 
@@ -35,14 +38,3 @@ With two reviewers, both review the same head at the same time, and the author b
 Merge rule: one assigned-reviewer approval + green CI, then squash-merge.
 
 - [ ] Squash commit body includes `Approved-by: <reviewer> at <sha>`. The approval comes by agent message plus a note on the Jira ticket.
-
-## Jira summary (paste as the Done comment)
-
-```
-What changed:
-Key decisions:
-PR:
-Merge commit:
-Tests:
-Follow-ups:
-```
