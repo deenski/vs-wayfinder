@@ -17,17 +17,25 @@ public sealed class TeamModel : ITeamService
     private string? _localUid;
     private string? _restriction;
 
+    /// <summary>Uid of the local player, or null before one is known.</summary>
     public string? LocalPlayerUid => _localUid;
 
+    /// <summary>Group name selected with <c>.nav team</c>, or null for every membership group.</summary>
     public string? TeamRestriction => _restriction;
 
+    /// <summary>Groups the local player is in.</summary>
     public IReadOnlyCollection<TeamGroup> Membership => _groups.Values.ToArray();
 
+    /// <summary>Sets the local player. An empty uid clears it. The local player is never visible.</summary>
     public void SetLocalPlayer(string? uid)
     {
         _localUid = string.IsNullOrEmpty(uid) ? null : uid;
     }
 
+    /// <summary>
+    /// Replaces membership. When the set of group ids changes, evidence for groups
+    /// that were left is dropped, and share flags with no remaining evidence are dropped.
+    /// </summary>
     public void SetMembership(IReadOnlyList<TeamGroup> groups)
     {
         var next = new Dictionary<int, TeamGroup>();
@@ -62,16 +70,19 @@ public sealed class TeamModel : ITeamService
         }
     }
 
+    /// <summary>Shows teammates from every membership group again.</summary>
     public void ClearRestriction()
     {
         _restriction = null;
     }
 
+    /// <summary>Sets the team limit by name without checking membership. Whitespace clears it.</summary>
     public void SetRestrictionName(string? groupName)
     {
         _restriction = string.IsNullOrWhiteSpace(groupName) ? null : groupName.Trim();
     }
 
+    /// <summary>Limits visibility to one membership group. The stored name is the group's own spelling.</summary>
     public TeamRestrictResult TryRestrictTo(string groupName, out string canonicalName)
     {
         canonicalName = "";
@@ -145,6 +156,7 @@ public sealed class TeamModel : ITeamService
         return ShareChatDisposition.Applied;
     }
 
+    /// <summary>Recorded evidence and share flags, in a stable order. Group id -1 has no evidence left.</summary>
     public IReadOnlyList<ShareRecord> RecordedShares()
     {
         var rows = new List<ShareRecord>(_evidence.Count + _sharing.Count);
@@ -208,6 +220,7 @@ public sealed class TeamModel : ITeamService
         return false;
     }
 
+    /// <inheritdoc />
     public bool IsVisibleTeammate(string? uid)
     {
         if (string.IsNullOrEmpty(uid))
@@ -236,6 +249,7 @@ public sealed class TeamModel : ITeamService
         return false;
     }
 
+    /// <inheritdoc />
     public IReadOnlyCollection<string> GetVisibleTeammates()
     {
         var visible = new List<string>();
@@ -251,6 +265,7 @@ public sealed class TeamModel : ITeamService
         return visible;
     }
 
+    /// <summary>Clears membership, evidence, share flags, the local uid, and the team limit.</summary>
     public void Reset()
     {
         _groups.Clear();

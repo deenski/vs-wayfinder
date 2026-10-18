@@ -7,6 +7,7 @@ namespace Wayfinding.Pathing.Teams;
 /// </summary>
 public readonly record struct OnlinePlayer(string Uid, long EntityId, bool EntityLoaded);
 
+/// <summary>What <see cref="TeamModel.TryApplyChat"/> did with one chat line.</summary>
 public enum ShareChatDisposition
 {
     /// <summary>Not a share announcement, or the message and data disagree.</summary>
@@ -24,6 +25,7 @@ public enum ShareChatDisposition
     /// </summary>
     NotInGroup,
 
+    /// <summary>The sender was verified and the share flag and evidence were updated.</summary>
     Applied,
 }
 

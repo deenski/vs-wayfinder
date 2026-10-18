@@ -1,5 +1,9 @@
 namespace Wayfinding.Pathing.Teams;
 
+/// <summary>Saved share flag and optional team limit for one world.</summary>
+/// <param name="WorldId">Savegame id, or a seed fallback.</param>
+/// <param name="Sharing">True when this client is sharing location.</param>
+/// <param name="TeamGroup">Group name selected with <c>.nav team</c>, or null for every group.</param>
 public sealed record WorldTeamPreference(string WorldId, bool Sharing, string? TeamGroup);
 
 /// <summary>
@@ -11,6 +15,7 @@ public sealed class ShareStateStore
 {
     private readonly Dictionary<string, WorldTeamPreference> _worlds = new(StringComparer.Ordinal);
 
+    /// <summary>True when this world is sharing. A missing world defaults to on.</summary>
     public bool IsSharing(string worldId)
     {
         if (string.IsNullOrEmpty(worldId) || !_worlds.TryGetValue(worldId, out var preference))
@@ -21,6 +26,7 @@ public sealed class ShareStateStore
         return preference.Sharing;
     }
 
+    /// <summary>Stores the share flag and keeps the team limit. An empty world id throws.</summary>
     public void SetSharing(string worldId, bool sharing)
     {
         RequireWorldId(worldId);
@@ -28,6 +34,7 @@ public sealed class ShareStateStore
         _worlds[worldId] = new WorldTeamPreference(worldId, sharing, team);
     }
 
+    /// <summary>The saved team limit, or null when this world has none.</summary>
     public string? TeamGroup(string worldId)
     {
         if (string.IsNullOrEmpty(worldId) || !_worlds.TryGetValue(worldId, out var preference))
@@ -38,6 +45,7 @@ public sealed class ShareStateStore
         return preference.TeamGroup;
     }
 
+    /// <summary>Stores the team limit and keeps the share flag. Whitespace clears the limit.</summary>
     public void SetTeamGroup(string worldId, string? teamGroup)
     {
         RequireWorldId(worldId);
@@ -46,6 +54,7 @@ public sealed class ShareStateStore
         _worlds[worldId] = new WorldTeamPreference(worldId, sharing, name);
     }
 
+    /// <summary>Saved worlds, ordered by world id.</summary>
     public IReadOnlyList<WorldTeamPreference> Export()
     {
         return _worlds.Values
@@ -53,6 +62,7 @@ public sealed class ShareStateStore
             .ToArray();
     }
 
+    /// <summary>Builds a store from saved rows. Empty world ids are skipped.</summary>
     public static ShareStateStore Import(IEnumerable<WorldTeamPreference>? records)
     {
         var store = new ShareStateStore();
