@@ -127,18 +127,19 @@ public partial class WayfindingModSystem : ModSystem
         {
             capi.Event.LevelFinalize -= OnLevelFinalize;
             capi.Event.LeaveWorld -= OnLeaveWorld;
-            capi = null;
         }
 
         _teams?.Dispose();
         _teams = null;
-        // Arrival (KAN-23) before the tether (KAN-22). Both hooks are safe when
-        // their Register methods never ran, including on the server instance.
+        // Arrival (KAN-23) before the tether (KAN-22), while capi is still set.
+        // Both hooks are safe when their Register methods never ran, including
+        // on the server instance.
         DisposeDimensionAndArrival();
         DisposeTeammateTether();
         navigation?.OnLeaveWorld();
         navigation?.Dispose();
         navigation = null;
+        capi = null;
         base.Dispose();
     }
 }

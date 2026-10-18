@@ -77,6 +77,7 @@ public sealed class WayfindingMapLayer : MapLayer
         Active = true;
         mod.AttachMapLayer(this);
         WatchTargets();
+        mod.ReplanRequested += OnForcedReplan;
     }
 
     public void ArmRenderException()
@@ -140,6 +141,20 @@ public sealed class WayfindingMapLayer : MapLayer
         DropStaleLabel();
         if (!Active || !HoverLabelPolicy.Show(HasTarget(), mod.RenderGuard.LayerEnabled))
         {
+            return;
+        }
+
+        string? badge = DimensionPresentation.Label(mod.RouteDimension);
+        if (badge != null)
+        {
+            labelText = badge;
+            hoverText.AppendLine(badge);
+            return;
+        }
+
+        if (!DimensionPresentation.DrawRoute(mod.RouteDimension))
+        {
+            labelText = null;
             return;
         }
 
@@ -240,6 +255,7 @@ public sealed class WayfindingMapLayer : MapLayer
         }
 
         disposed = true;
+        mod.ReplanRequested -= OnForcedReplan;
         UnwatchTargets();
         quad?.Dispose();
         quad = null;
@@ -257,7 +273,30 @@ public sealed class WayfindingMapLayer : MapLayer
         }
 
         GuiElementMap? map = drawing;
-        if (map == null || capi?.World.Player?.Entity == null || !TryResolve(out double targetX, out double targetY, out double targetZ))
+        if (map == null || capi?.World.Player?.Entity == null)
+        {
+            return;
+        }
+
+        if (!DimensionPresentation.DrawRoute(mod.RouteDimension))
+        {
+            string? badge = DimensionPresentation.Label(mod.RouteDimension);
+            if (badge != null)
+            {
+                DrawBadge(map, badge);
+            }
+
+            return;
+        }
+
+        if (labelText == DimensionPresentation.DifferentBadge)
+        {
+            labelText = null;
+            labelMeters = -1;
+            uploadedMeters = -1;
+        }
+
+        if (!TryResolve(out double targetX, out double targetY, out double targetZ))
         {
             return;
         }
@@ -533,7 +572,7 @@ public sealed class WayfindingMapLayer : MapLayer
 
         if (player != null && TrackedPlayerPosition.TryHorizontal(player, out double playerX, out double playerZ))
         {
-            Say(targets.SetCoordinate(FloorCoord(playerX, PlayerFeetY(player), playerZ), Spawn()).Message);
+            Say(targets.SetCoordinate(FloorCoord(playerX, PlayerFeetY(player), playerZ), Spawn(), LocalDimension()).Message);
             return true;
         }
 
@@ -739,7 +778,7 @@ public sealed class WayfindingMapLayer : MapLayer
         }
 
         int y = capi.World.BlockAccessor.GetRainMapHeightAt((int)Math.Floor(worldX), (int)Math.Floor(worldZ));
-        Say(targets.SetCoordinate(FloorCoord(worldX, y, worldZ), Spawn()).Message);
+        Say(targets.SetCoordinate(FloorCoord(worldX, y, worldZ), Spawn(), LocalDimension()).Message);
     }
 
     void Say(string message)
@@ -839,6 +878,49 @@ public sealed class WayfindingMapLayer : MapLayer
     void OnTargetChanged()
     {
         targetRevision++;
+    }
+
+    void OnForcedReplan(ReplanRequest _)
+    {
+        // shortcut: there is no planner re-plan entry point, so this only drops the cached straight segment.
+        straight = null;
+    }
+
+    void DrawBadge(GuiElementMap map, string text)
+    {
+        if (capi == null)
+        {
+            return;
+        }
+
+        if (labelText != text || labelTexture == null || labelTexture.TextureId == 0)
+        {
+            labelText = text;
+            labelMeters = -1;
+            labelFont ??= CairoFont.WhiteDetailText();
+            capi.Gui.TextTexture.GenOrUpdateTextTexture(labelText, labelFont, ref labelTexture);
+            uploadedMeters = -1;
+        }
+
+        if (labelTexture == null || labelTexture.TextureId == 0)
+        {
+            return;
+        }
+
+        float drawX = (float)map.Bounds.renderX + (float)map.Bounds.InnerWidth / 2f - labelTexture.Width / 2f;
+        float drawY = (float)map.Bounds.renderY + (float)GuiElement.scaled(8);
+        capi.Render.Render2DTexture(labelTexture.TextureId, drawX, drawY, labelTexture.Width, labelTexture.Height, LabelZ);
+    }
+
+    int? LocalDimension()
+    {
+        if (capi == null)
+        {
+            return null;
+        }
+
+        var fix = new ClientPlayerPositionSource(capi).Read();
+        return fix.IsAvailable ? fix.Dimension : null;
     }
 
     bool HasTarget()

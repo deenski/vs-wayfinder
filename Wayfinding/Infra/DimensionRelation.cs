@@ -4,8 +4,9 @@ namespace Wayfinding.Infra;
 
 /// <summary>
 /// How the active target's dimension compares with the local player.
-/// TODO(KAN-19): <see cref="Different"/> shows the "different dimension" badge and draws no line.
-/// <see cref="Unconfirmed"/> draws nothing. Only <see cref="Same"/> may draw a route.
+/// <see cref="DimensionPresentation"/> tells the map layer to draw a line only for
+/// <see cref="Same"/>. <see cref="Different"/> is the "different dimension" label and no line.
+/// <see cref="Unconfirmed"/> draws nothing.
 /// </summary>
 public enum DimensionRelation
 {

@@ -158,7 +158,10 @@ public sealed class ClientNavSession
         }
 
         // MapSizeY is the world height in blocks. The range check lives in the parser.
-        return Reply(Targets.Coord(argument, spawn, MapHeight()));
+        // The dimension is the player's at this moment. Unavailable leaves the target unconfirmed.
+        var fix = new ClientPlayerPositionSource(capi).Read();
+        int? dimension = fix.IsAvailable ? fix.Dimension : null;
+        return Reply(Targets.Coord(argument, spawn, MapHeight(), dimension));
     }
 
     public TextCommandResult Off()

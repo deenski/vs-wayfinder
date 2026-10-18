@@ -13,7 +13,7 @@ public sealed class DimensionArrivalSession : IDisposable
 
     private readonly NavTargets targets;
     private readonly IPlayerPositionSource positions;
-    private readonly IClock clock;
+    private readonly Func<long> elapsedMilliseconds;
     private readonly IDimensionDetector dimensions;
     private readonly ITeleportDetector teleports;
     private readonly IArrivalDetector arrival;
@@ -28,7 +28,7 @@ public sealed class DimensionArrivalSession : IDisposable
     public DimensionArrivalSession(
         NavTargets targets,
         IPlayerPositionSource positions,
-        IClock clock,
+        Func<long> elapsedMilliseconds,
         IDimensionDetector dimensions,
         ITeleportDetector teleports,
         IArrivalDetector arrival,
@@ -41,7 +41,7 @@ public sealed class DimensionArrivalSession : IDisposable
     {
         this.targets = targets ?? throw new ArgumentNullException(nameof(targets));
         this.positions = positions ?? throw new ArgumentNullException(nameof(positions));
-        this.clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        this.elapsedMilliseconds = elapsedMilliseconds ?? throw new ArgumentNullException(nameof(elapsedMilliseconds));
         this.dimensions = dimensions ?? throw new ArgumentNullException(nameof(dimensions));
         this.teleports = teleports ?? throw new ArgumentNullException(nameof(teleports));
         this.arrival = arrival ?? throw new ArgumentNullException(nameof(arrival));
@@ -54,8 +54,8 @@ public sealed class DimensionArrivalSession : IDisposable
     }
 
     /// <summary>
-    /// TODO(KAN-19): Different shows the "different dimension" badge and draws no line.
-    /// Unconfirmed draws nothing. Only Same may draw a route.
+    /// Live relation for the active target. The map layer reads this and draws a line
+    /// only while it is <see cref="DimensionRelation.Same"/>.
     /// </summary>
     public DimensionRelation Current { get; private set; } = DimensionRelation.Unconfirmed;
 
@@ -73,6 +73,7 @@ public sealed class DimensionArrivalSession : IDisposable
         events.Subscribe(new DimensionArrivalHandlers(Tick, OnDimensionChanged, OnDeath, OnEntitySpawn));
         targets.Changed += OnTargetChanged;
         started = true;
+        Tick();
     }
 
     public void Dispose()
@@ -89,7 +90,7 @@ public sealed class DimensionArrivalSession : IDisposable
 
     public void Tick()
     {
-        LastElapsedMilliseconds = clock.ElapsedMilliseconds;
+        LastElapsedMilliseconds = elapsedMilliseconds();
         if (!permission.AllowsNavigation)
         {
             Current = DimensionRelation.Unconfirmed;
@@ -153,7 +154,7 @@ public sealed class DimensionArrivalSession : IDisposable
 
     private void Raise(ReplanReason reason)
     {
-        var elapsed = clock.ElapsedMilliseconds;
+        var elapsed = elapsedMilliseconds();
         LastElapsedMilliseconds = elapsed;
         ReplanRequested?.Invoke(new ReplanRequest(reason, elapsed));
     }
