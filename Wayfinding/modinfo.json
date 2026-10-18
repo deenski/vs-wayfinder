@@ -1,0 +1,17 @@
+{
+    "$schema": "https://moddbcdn.vintagestory.at/schema/modinfo.latest.json",
+    "type": "Code",
+    "modid": "wayfinding",
+    "name": "Wayfinding",
+    "authors": [
+        "Jakob Vendegna"
+    ],
+    "description": "Shortest route to a waypoint or teammate, with the least hill climbing.",
+    "version": "0.1.0",
+    "side": "Universal",
+    "requiredOnClient": false,
+    "requiredOnServer": false,
+    "dependencies": {
+        "game": "1.22.0"
+    }
+}

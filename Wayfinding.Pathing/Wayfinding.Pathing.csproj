@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- Game-free library. A reference to a Vintage Story assembly fails the build. -->
+  <Target Name="RejectGameReferences" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <_GameReference Include="@(Reference)"
+                      Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Reference.Identity)', '(?i)(^|[\\/])(VintagestoryAPI|VintagestoryLib|VintagestoryServer|VSEssentials|VSSurvivalMod|VSCreativeMod|0Harmony|cairo-sharp|CairoSharp)(\.dll)?$'))
+                              or $([System.Text.RegularExpressions.Regex]::IsMatch('%(Reference.HintPath)', '(?i)(VintagestoryAPI|VintagestoryLib|VintagestoryServer|VSEssentials|VSSurvivalMod|VSCreativeMod|0Harmony|cairo-sharp|CairoSharp|VINTAGE_STORY)'))" />
+      <_GameReference Include="@(PackageReference)"
+                      Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Identity)', '(?i)^(VintagestoryAPI|VintagestoryLib|VintagestoryServer|VSEssentials|VSSurvivalMod|VSCreativeMod|0Harmony|cairo-sharp|CairoSharp|VintageStory)$'))" />
+      <_GameReference Include="@(ProjectReference)"
+                      Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Identity)', '(?i)(VintagestoryAPI|VintagestoryLib|VintagestoryServer|VSEssentials|VSSurvivalMod|VSCreativeMod|0Harmony|cairo-sharp|CairoSharp)'))" />
+    </ItemGroup>
+    <Error Condition="'@(_GameReference)' != ''"
+           Text="Wayfinding.Pathing must not reference game assemblies: @(_GameReference)." />
+  </Target>
+
+</Project>
