@@ -15,18 +15,28 @@ namespace Wayfinding.Pathing.Grid;
 /// (<c>Task.Run</c>, a concurrent queue, a <c>volatile</c> field).
 /// </para>
 /// <para>
-/// Memory: one byte per cell, plus two bytes per cell only if any <see cref="CellFlags"/> were set.
-/// A 96 × 64 × 96 fine window is about 0.6 MB.
+/// Memory: one byte per cell, plus two bytes per cell only if any <see cref="CellFlags"/> were set,
+/// plus two bytes per cell only if any <see cref="BlockCell.StepHeight"/> was measured.
+/// A 96 × 64 × 96 fine window is about 0.6 MB before those optional arrays.
 /// </para>
 /// </remarks>
 public sealed class BlockGridSnapshot : IBlockGrid
 {
     private readonly CellClass[] _classes;
     private readonly CellFlags[]? _flags;
+    private readonly byte?[]? _steps;
     private readonly int _strideZ;
     private readonly int _strideY;
 
-    internal BlockGridSnapshot(int dimension, GridPos origin, int sizeX, int sizeY, int sizeZ, CellClass[] classes, CellFlags[]? flags)
+    internal BlockGridSnapshot(
+        int dimension,
+        GridPos origin,
+        int sizeX,
+        int sizeY,
+        int sizeZ,
+        CellClass[] classes,
+        CellFlags[]? flags,
+        byte?[]? steps)
     {
         Dimension = dimension;
         Origin = origin;
@@ -35,6 +45,7 @@ public sealed class BlockGridSnapshot : IBlockGrid
         SizeZ = sizeZ;
         _classes = classes;
         _flags = flags;
+        _steps = steps;
         _strideZ = sizeX;
         _strideY = sizeX * sizeZ;
     }
@@ -60,6 +71,9 @@ public sealed class BlockGridSnapshot : IBlockGrid
     /// <summary>True when any cell carries non-<see cref="CellFlags.None"/> flags.</summary>
     public bool HasFlags => _flags is not null;
 
+    /// <summary>True when any cell has a measured <see cref="BlockCell.StepHeight"/>.</summary>
+    public bool HasStepHeights => _steps is not null;
+
     /// <summary>True when the world coordinate lies inside the box. Never throws.</summary>
     /// <param name="x">Block X.</param>
     /// <param name="y">Block Y.</param>
@@ -78,7 +92,9 @@ public sealed class BlockGridSnapshot : IBlockGrid
             return BlockCell.Unknown;
         }
 
-        return new BlockCell(_classes[i], _flags is null ? CellFlags.None : _flags[i]);
+        CellFlags flags = _flags is null ? CellFlags.None : _flags[i];
+        byte? step = _steps is null ? null : _steps[i];
+        return new BlockCell(_classes[i], flags, step);
     }
 
     private bool TryIndex(int x, int y, int z, out int index)

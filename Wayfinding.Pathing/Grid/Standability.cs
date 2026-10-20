@@ -36,6 +36,9 @@ public enum StandKind : byte
 /// <item><description>Feet is Air/Walkable: <see cref="StandKind.Ground"/> if support is Solid,
 /// <see cref="StandKind.Unknown"/> if support is Unknown, otherwise <see cref="StandKind.None"/>.</description></item>
 /// </list>
+/// <para>
+/// <see cref="BlockCell.StepHeight"/> is not read. Slabs, stairs, and snow stay solid until KAN-26.
+/// </para>
 /// </remarks>
 public static class Standability
 {

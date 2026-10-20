@@ -24,6 +24,7 @@ public sealed class BlockGridSnapshotBuilder
 
     private CellClass[]? _classes;
     private CellFlags[]? _flags;
+    private byte?[]? _steps;
     private readonly int _strideZ;
     private readonly int _strideY;
 
@@ -97,10 +98,14 @@ public sealed class BlockGridSnapshotBuilder
     /// <param name="z">Block Z.</param>
     /// <param name="cellClass">The class to store.</param>
     /// <param name="flags">Extra flags to store (replaces any previous flags of the cell).</param>
+    /// <param name="stepHeight">
+    /// Measured <see cref="BlockCell.StepHeight"/> in eighths, or null when this write does not measure one.
+    /// Replaces any previous step height of the cell.
+    /// </param>
     /// <returns>This builder, for chaining.</returns>
     /// <exception cref="ArgumentOutOfRangeException">The coordinate is outside the box.</exception>
     /// <exception cref="InvalidOperationException"><see cref="Build"/> was already called.</exception>
-    public BlockGridSnapshotBuilder Set(int x, int y, int z, CellClass cellClass, CellFlags flags = CellFlags.None)
+    public BlockGridSnapshotBuilder Set(int x, int y, int z, CellClass cellClass, CellFlags flags = CellFlags.None, byte? stepHeight = null)
     {
         CellClass[] classes = Live();
         int i = Index(x, y, z);
@@ -114,8 +119,26 @@ public sealed class BlockGridSnapshotBuilder
             _flags[i] = CellFlags.None;
         }
 
+        if (stepHeight is not null)
+        {
+            (_steps ??= new byte?[classes.Length])[i] = stepHeight;
+        }
+        else if (_steps is not null)
+        {
+            _steps[i] = null;
+        }
+
         return this;
     }
+
+    /// <summary>Writes one cell, including its flags and step height.</summary>
+    /// <param name="x">Block X.</param>
+    /// <param name="y">Block Y.</param>
+    /// <param name="z">Block Z.</param>
+    /// <param name="cell">The cell to store.</param>
+    /// <returns>This builder, for chaining.</returns>
+    public BlockGridSnapshotBuilder Set(int x, int y, int z, BlockCell cell) =>
+        Set(x, y, z, cell.Class, cell.Flags, cell.StepHeight);
 
     /// <summary>Writes one cell.</summary>
     /// <param name="pos">World block position.</param>
@@ -200,9 +223,10 @@ public sealed class BlockGridSnapshotBuilder
     public BlockGridSnapshot Build()
     {
         CellClass[] classes = Live();
-        var snapshot = new BlockGridSnapshot(Dimension, Origin, SizeX, SizeY, SizeZ, classes, _flags);
+        var snapshot = new BlockGridSnapshot(Dimension, Origin, SizeX, SizeY, SizeZ, classes, _flags, _steps);
         _classes = null;
         _flags = null;
+        _steps = null;
         return snapshot;
     }
 

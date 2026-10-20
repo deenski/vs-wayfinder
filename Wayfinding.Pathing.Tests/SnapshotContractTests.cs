@@ -80,6 +80,23 @@ public class SnapshotContractTests
     }
 
     [Fact]
+    public void StepHeight_RoundTrips_AndUnknownStaysUnmeasured()
+    {
+        var b = new BlockGridSnapshotBuilder(default, 2, 1, 1);
+        b.Set(0, 0, 0, new BlockCell(CellClass.Solid, CellFlags.None, 8));
+        b.Set(1, 0, 0, CellClass.Air);
+        BlockGridSnapshot s = b.Build();
+
+        Assert.True(s.HasStepHeights);
+        Assert.Equal(new BlockCell(CellClass.Solid, CellFlags.None, 8), s.GetCell(0, 0, 0));
+        Assert.Null(s.GetCell(1, 0, 0).StepHeight);
+        Assert.Null(default(BlockCell).StepHeight);
+        Assert.Equal(BlockCell.Unknown, default(BlockCell));
+        Assert.Equal(CellClass.Unknown, s.GetClass(-1, 0, 0));
+        Assert.Null(s.GetCell(-1, 0, 0).StepHeight);
+    }
+
+    [Fact]
     public void Builder_IsFinishedAfterBuild_AndRejectsOutOfBoxWrites()
     {
         var b = new BlockGridSnapshotBuilder(default, 2, 2, 2);
