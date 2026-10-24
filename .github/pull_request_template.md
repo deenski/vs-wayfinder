@@ -1,10 +1,10 @@
-Process rules live only in Jira KAN-40 and this template. Only the assigned reviewer gives next steps on a PR.
+Process rules live only in Linear FDY-41 (was KAN-40) and this template. Only the assigned reviewer gives next steps on a PR.
 
-Follow the [ponytail skill](https://github.com/DietrichGebert/ponytail): smallest complete change, never cut validation, security or tests. Reviews are ponytail reviews (real problems only, one pass, nits go to a Jira follow-up).
+Follow the [ponytail skill](https://github.com/DietrichGebert/ponytail): smallest complete change, never cut validation, security or tests. Reviews are ponytail reviews (real problems only, one pass, nits go to a Linear follow-up issue).
 
 ## Ticket
 
-`KAN-##`
+`FDY-##`
 
 ## Summary
 
@@ -37,4 +37,4 @@ With two reviewers, both review the same head at the same time, and the author b
 
 Merge rule: one assigned-reviewer approval + green CI, then squash-merge.
 
-- [ ] Squash commit body includes `Approved-by: <reviewer> at <sha>`. The approval comes by agent message plus a note on the Jira ticket.
+- [ ] Squash commit body includes `Approved-by: <reviewer> at <sha>`. The approval comes by agent message plus a note on the Linear issue.
