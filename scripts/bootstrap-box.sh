@@ -85,29 +85,43 @@ sync_repo() {
   fi
 }
 
-read_sdk_version() {
+# Prints "v:<version>\nr:<rollForward>". rollForward is empty when the key is missing.
+read_sdk_pin() {
   local file="$1"
-  local version=""
+  local version="" roll=""
   if [[ ! -f "$file" ]]; then
     echo "global.json not found: $file" >&2
     exit 1
   fi
   if command -v python3 >/dev/null 2>&1; then
-    version="$(
+    local parsed
+    parsed="$(
       python3 - "$file" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
-    print(json.load(handle)["sdk"]["version"])
+    sdk = json.load(handle)["sdk"]
+version = sdk["version"]
+roll = sdk.get("rollForward") or ""
+print(f"v:{version}")
+print(f"r:{roll}")
 PY
     )"
+    version="${parsed#v:}"
+    version="${version%%$'\n'*}"
+    roll="${parsed#*$'\n'r:}"
   elif command -v jq >/dev/null 2>&1; then
     version="$(jq -er '.sdk.version' "$file")"
+    roll="$(jq -r '.sdk.rollForward // ""' "$file")"
   else
     local line
     line="$(grep -m 1 -E '"version"[[:space:]]*:' "$file" || true)"
     version="$(printf '%s\n' "$line" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+    line="$(grep -m 1 -E '"rollForward"[[:space:]]*:' "$file" || true)"
+    if [[ -n "$line" ]]; then
+      roll="$(printf '%s\n' "$line" | sed -E 's/.*"rollForward"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+    fi
   fi
   if [[ -z "$version" || "$version" == "null" ]]; then
     echo "could not read sdk.version from $file" >&2
@@ -117,10 +131,92 @@ PY
     echo "refusing unexpected SDK version from $file" >&2
     exit 1
   fi
-  printf '%s\n' "$version"
+  if [[ -n "$roll" && ! "$roll" =~ ^[A-Za-z]+$ ]]; then
+    echo "refusing unexpected rollForward from $file" >&2
+    exit 1
+  fi
+  printf 'v:%s\nr:%s\n' "$version" "$roll"
 }
 
-sdk_present() {
+# Feature band is the hundreds group of the SDK patch: 10.0.402 -> 400, 10.0.100 -> 100.
+feature_band_satisfies() {
+  local installed="$1"
+  local pinned="$2"
+  local i_major i_minor i_band p_major p_minor p_band
+  local parsed
+  parsed="$(sdk_band_parts "$installed")" || return 1
+  read -r i_major i_minor i_band <<<"$parsed"
+  parsed="$(sdk_band_parts "$pinned")" || return 1
+  read -r p_major p_minor p_band <<<"$parsed"
+  [[ "$i_major" -eq "$p_major" && "$i_minor" -eq "$p_minor" && "$i_band" -ge "$p_band" ]]
+}
+
+sdk_band_parts() {
+  local version="$1"
+  local core major minor patch
+  core="${version%%-*}"
+  core="${core%%+*}"
+  IFS=. read -r major minor patch <<<"$core"
+  if [[ ! "$major" =~ ^[0-9]+$ || ! "$minor" =~ ^[0-9]+$ || ! "$patch" =~ ^[0-9]+$ ]]; then
+    return 1
+  fi
+  printf '%s %s %s\n' "$major" "$minor" "$((10#$patch / 100 * 100))"
+}
+
+# disable, missing, patch, latestPatch, and unknown policies require an exact version.
+# latestFeature and policies that roll at least that far (feature, minor, latestMinor,
+# major, latestMajor) accept the same major.minor with a feature band >= the pin.
+sdk_satisfies() {
+  local installed="$1"
+  local pinned="$2"
+  local roll="$3"
+  local roll_lower
+  roll_lower="$(printf '%s' "$roll" | tr '[:upper:]' '[:lower:]')"
+  case "$roll_lower" in
+    feature | latestfeature | minor | latestminor | major | latestmajor)
+      feature_band_satisfies "$installed" "$pinned"
+      ;;
+    *)
+      [[ "$installed" == "$pinned" ]]
+      ;;
+  esac
+}
+
+# Prints the installed SDK that satisfies the pin. Prefers the exact version.
+find_satisfying_sdk() {
+  local pinned="$1"
+  local roll="$2"
+  local dotnet="${HOME}/.dotnet/dotnet"
+  local listed installed exact="" fallback=""
+  if [[ ! -x "$dotnet" ]]; then
+    return 1
+  fi
+  if ! listed="$("$dotnet" --list-sdks)"; then
+    return 1
+  fi
+  while IFS= read -r installed; do
+    installed="${installed%% *}"
+    [[ -z "$installed" ]] && continue
+    if [[ "$installed" == "$pinned" ]]; then
+      exact="$installed"
+      break
+    fi
+    if [[ -z "$fallback" ]] && sdk_satisfies "$installed" "$pinned" "$roll"; then
+      fallback="$installed"
+    fi
+  done <<<"$listed"
+  if [[ -n "$exact" ]]; then
+    printf '%s\n' "$exact"
+    return 0
+  fi
+  if [[ -n "$fallback" ]]; then
+    printf '%s\n' "$fallback"
+    return 0
+  fi
+  return 1
+}
+
+exact_sdk_present() {
   local version="$1"
   local dotnet="${HOME}/.dotnet/dotnet"
   if [[ ! -x "$dotnet" ]]; then
@@ -135,8 +231,8 @@ install_sdk() {
     echo "curl is required to download https://dot.net/v1/dotnet-install.sh" >&2
     exit 1
   fi
-  local installer
   installer="$(mktemp)"
+  trap 'rm -f "$installer"' EXIT
   curl -fsSL --retry 3 --retry-delay 2 -o "$installer" https://dot.net/v1/dotnet-install.sh
   bash "$installer" --version "$version" --install-dir "${HOME}/.dotnet"
   rm -f "$installer"
@@ -151,14 +247,21 @@ else
   global_json="${script_dir}/../global.json"
 fi
 
-version="$(read_sdk_version "$global_json")"
+pin="$(read_sdk_pin "$global_json")"
+version="${pin#v:}"
+version="${version%%$'\n'*}"
+roll="${pin#*$'\n'r:}"
 
-if sdk_present "$version"; then
-  echo "SDK ${version} already present in ${HOME}/.dotnet; skipping install."
+if match="$(find_satisfying_sdk "$version" "$roll")"; then
+  if [[ "$match" == "$version" ]]; then
+    echo "SDK ${version} already present in ${HOME}/.dotnet; skipping install."
+  else
+    echo "SDK ${match} satisfies global.json ${version} (rollForward: ${roll}) in ${HOME}/.dotnet; skipping install."
+  fi
 else
   echo "Installing .NET SDK ${version} into ${HOME}/.dotnet"
   install_sdk "$version"
-  if ! sdk_present "$version"; then
+  if ! exact_sdk_present "$version"; then
     echo "SDK ${version} was not listed by ${HOME}/.dotnet/dotnet --list-sdks after install" >&2
     exit 1
   fi
