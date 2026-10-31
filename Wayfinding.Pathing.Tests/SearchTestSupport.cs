@@ -100,7 +100,8 @@ internal static class SearchTestSupport
     /// <param name="cumulative">
     /// Check build legs against every block placed so far (all earlier sites plus this one) instead of the site's own
     /// blocks only. Use it for <see cref="BuildPlanner"/> routes, whose later sites may omit a cell an earlier site
-    /// already filled (KAN-28 round 2).
+    /// already filled (KAN-28 round 2). Pillar cells are checked cell by cell against the blocks placed so far, and the
+    /// route must place each cell once. Bridge legs check the step's cost against its own block count only.
     /// </param>
     public static void AssertValid(IBlockGrid grid, FineRoute route, ClimbCostModel model, double buildPenalty = 24, bool cumulative = false)
     {
@@ -140,7 +141,18 @@ internal static class SearchTestSupport
                 int blocks = s.Pos.Y - from.Y;
                 if (cumulative)
                 {
-                    Assert.InRange(s.Blocks, 0, blocks);
+                    // Every pillar cell is filled by this site or an earlier one, and the step pays for exactly the
+                    // cells this site places (the others are repeats DedupePlacements dropped).
+                    IReadOnlyList<GridPos> siteBlocks = route.BuildSites[site - 1].Blocks;
+                    int own = 0;
+                    for (int y = from.Y; y < s.Pos.Y; y++)
+                    {
+                        var cell = new GridPos(from.X, y, from.Z);
+                        Assert.True(allPlaced.Contains(cell), $"pillar cell {cell} of step {i} is never placed");
+                        own += siteBlocks.Contains(cell) ? 1 : 0;
+                    }
+
+                    Assert.Equal(own, s.Blocks);
                 }
                 else
                 {
@@ -161,6 +173,12 @@ internal static class SearchTestSupport
         Assert.Equal(route.BuildSites.Count, site);
         Assert.Equal(route.Cost, sum, Eps);
         Assert.Equal(route.Steps.Sum(s => s.Blocks), route.BlocksNeeded);
+        if (cumulative)
+        {
+            // Steps pay for each placed cell exactly once: no cell repeats across sites, and every site block is paid for.
+            Assert.Equal(allPlaced.Count, allPlaced.Distinct().Count());
+            Assert.Equal(allPlaced.Count, route.BlocksNeeded);
+        }
         foreach (BuildSite b in route.BuildSites)
         {
             foreach (GridPos pos in b.Blocks)
