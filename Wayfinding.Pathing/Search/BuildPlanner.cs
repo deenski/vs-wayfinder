@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Wayfinding.Pathing.Cost;
 using Wayfinding.Pathing.Grid;
 
@@ -275,9 +276,12 @@ public static class BuildPlanner
                     .Where(p => p.X >= x0 && p.X <= x1 && p.Z >= z0 && p.Z <= z1 && p.Y >= y0 && p.Y <= y1 && !own.Contains(p))
                     .OrderBy(p => p.X).ThenBy(p => p.Y).ThenBy(p => p.Z)
                     .ToArray();
-                // Fallback: the step fails only on the cumulative view (it passed FineAStar's own check), so some earlier
-                // block must be in the way; when none is inside the step's box (a sweep through a corner cell the box
-                // does not model), forbid every earlier block. Broad, but it always terminates and stays safe.
+                // The box covers every cell ClimbCostModel.Evaluate and Standability.Classify read for this step (the
+                // from, to and both diagonal-corner columns, support row through headroom), and a placed solid can only
+                // fail a step from inside that set. The step passed FineAStar's own check, so an empty box is a bug.
+                Debug.Assert(hits.Length > 0, $"step {i} {from} -> {s.Pos} fails with no earlier placement in its box");
+
+                // Release safety net for that bug: forbid every earlier block. Broad, but it terminates and stays safe.
                 return hits.Length > 0 ? hits : placed.Where(p => !own.Contains(p)).OrderBy(p => p.X).ThenBy(p => p.Y).ThenBy(p => p.Z).ToArray();
             }
         }
@@ -352,7 +356,11 @@ public static class BuildPlanner
                 }
             }
 
-            // Blocks not tied to a step (should not happen) are kept unless repeated.
+            // Every site block belongs to a build step (FineAStar emits one step per placement run). A repeat dropped
+            // below would get no cost refund, so the route cost would overcharge it (PR #10 review nit).
+            Debug.Assert(blockIndex == b.Blocks.Count, $"site at {b.From}: {b.Blocks.Count - blockIndex} block(s) not tied to a build step");
+
+            // Release safety net for that bug: keep untied blocks unless repeated.
             for (; blockIndex < b.Blocks.Count; blockIndex++)
             {
                 if (!placed.Contains(b.Blocks[blockIndex]))
